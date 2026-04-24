@@ -36,6 +36,9 @@ N_ROLES = 5
 
 def parse_kda(kda_str: str) -> float:
     """Convert 'K/D/A' string to numeric ratio (K+A)/max(D,1)."""
+    kda_str = str(kda_str).strip()
+    if kda_str.startswith('="') and kda_str.endswith('"'):
+        kda_str = kda_str[2:-1]
     k, d, a = (int(x) for x in kda_str.split("/"))
     return (k + a) / max(d, 1)
 
