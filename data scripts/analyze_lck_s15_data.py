@@ -8,9 +8,13 @@ import numpy as np
 import pandas as pd
 
 
-DATA_PATH = Path("data/lck_s15_games_blocked.csv")
-OUT_DIR = Path("data/analysis")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_PATH = PROJECT_ROOT / "data/lck_s15_games.csv"
+OUT_DIR = PROJECT_ROOT / "data/analysis"
 PLOTS_DIR = OUT_DIR / "plots"
+MODEL_READY_PATH = PROJECT_ROOT / "data/lck_s15_games_MODEL-READY.csv"
+ROLE_NORMALIZATION_PATH = PROJECT_ROOT / "data/role_normalization_comparison.csv"
+MODEL_READY_ZSCORED_PATH = PROJECT_ROOT / "data/lck_s15_games_MODEL-READY_role_zscored.csv"
 
 
 def parse_duration_minutes(value: str) -> float:
@@ -23,6 +27,32 @@ def zscore_by_role(series: pd.Series, roles: pd.Series) -> pd.Series:
     means = grouped.transform("mean")
     stds = grouped.transform("std").replace(0, np.nan)
     return ((series - means) / stds).fillna(0.0)
+
+
+def center_by_role(series: pd.Series, roles: pd.Series) -> pd.Series:
+    means = series.groupby(roles).transform("mean")
+    return series - means
+
+
+def zscore_global(series: pd.Series) -> pd.Series:
+    std = series.std()
+    if pd.isna(std) or std == 0:
+        return pd.Series(0.0, index=series.index)
+    return (series - series.mean()) / std
+
+
+def zscore_from_unique_groups(
+    frame: pd.DataFrame, group_col: str, value_col: str
+) -> pd.Series:
+    unique = frame[[group_col, value_col]].drop_duplicates(subset=[group_col]).copy()
+    unique[value_col] = pd.to_numeric(unique[value_col], errors="coerce")
+    std = unique[value_col].std()
+    if pd.isna(std) or std == 0:
+        lookup = pd.Series(0.0, index=unique[group_col])
+    else:
+        lookup = ((unique[value_col] - unique[value_col].mean()) / std).set_axis(unique[group_col])
+        lookup.index = unique[group_col]
+    return frame[group_col].map(lookup).astype(float)
 
 
 def parse_kda_series(series: pd.Series) -> pd.DataFrame:
@@ -132,6 +162,284 @@ def load_features(path: Path) -> pd.DataFrame:
     df["perf_diff_vs_role_opp"] = df["performance_score"] - df["opponent_performance_score"]
 
     return df.sort_values(["game_block_id", "Result", "role", "player_name"]).reset_index(drop=True)
+
+
+def build_model_ready_table(features: pd.DataFrame) -> pd.DataFrame:
+    model = features.copy()
+    recreate_cols = [
+        "team_kills",
+        "team_deaths",
+        "team_assists",
+        "team_cs",
+        "team_golds",
+        "team_vision_score",
+        "team_total_damage_to_champion",
+        "opponent_kills",
+        "opponent_deaths",
+        "opponent_assists",
+        "opponent_cs",
+        "opponent_golds",
+        "opponent_vision_score",
+        "opponent_total_damage_to_champion",
+        "kills_diff_vs_role_opp",
+        "deaths_diff_vs_role_opp",
+        "assists_diff_vs_role_opp",
+        "cs_diff_vs_role_opp",
+        "golds_diff_vs_role_opp",
+        "vision_diff_vs_role_opp",
+        "damage_diff_vs_role_opp",
+    ]
+    model = model.drop(columns=[col for col in recreate_cols if col in model.columns], errors="ignore")
+
+    base_numeric_cols = [
+        "level",
+        "kills",
+        "deaths",
+        "assists",
+        "cs",
+        "golds",
+        "vision_score",
+        "solo_kills",
+        "double_kills",
+        "triple_kills",
+        "quadra_kills",
+        "penta_kills",
+        "gd_at_15",
+        "csd_at_15",
+        "xpd_at_15",
+        "lvld_at_15",
+        "objectives_stolen",
+        "damage_dealt_to_buildings",
+        "total_heal",
+        "total_heals_on_teammates",
+        "damage_self_mitigated",
+        "total_damage_shielded_on_teammates",
+        "total_time_cc_dealt",
+        "total_damage_taken",
+        "total_time_spent_dead",
+        "shutdown_bounty_collected",
+        "shutdown_bounty_lost",
+        "total_damage_to_champion",
+    ]
+    for col in base_numeric_cols:
+        model[col] = pd.to_numeric(model[col], errors="coerce")
+
+    team_totals = (
+        model.groupby("team_id")
+        .agg(
+            team_kills=("kills", "sum"),
+            team_deaths=("deaths", "sum"),
+            team_assists=("assists", "sum"),
+            team_cs=("cs", "sum"),
+            team_golds=("golds", "sum"),
+            team_vision_score=("vision_score", "sum"),
+            team_total_damage_to_champion=("total_damage_to_champion", "sum"),
+        )
+        .reset_index()
+    )
+    model = model.merge(team_totals, on="team_id", how="left")
+
+    opponent_lookup = model[
+        [
+            "game_block_id",
+            "Result",
+            "role",
+            "kills",
+            "deaths",
+            "assists",
+            "cs",
+            "golds",
+            "vision_score",
+            "total_damage_to_champion",
+        ]
+    ].copy()
+    opponent_lookup["Result"] = opponent_lookup["Result"].map(
+        {"Victory": "Defeat", "Defeat": "Victory"}
+    )
+    opponent_lookup = opponent_lookup.rename(
+        columns={
+            "kills": "opponent_kills",
+            "deaths": "opponent_deaths",
+            "assists": "opponent_assists",
+            "cs": "opponent_cs",
+            "golds": "opponent_golds",
+            "vision_score": "opponent_vision_score",
+            "total_damage_to_champion": "opponent_total_damage_to_champion",
+        }
+    )
+    model = model.merge(opponent_lookup, on=["game_block_id", "Result", "role"], how="left")
+    model["kills_diff_vs_role_opp"] = model["kills"] - model["opponent_kills"]
+    model["deaths_diff_vs_role_opp"] = model["deaths"] - model["opponent_deaths"]
+    model["assists_diff_vs_role_opp"] = model["assists"] - model["opponent_assists"]
+    model["cs_diff_vs_role_opp"] = model["cs"] - model["opponent_cs"]
+    model["golds_diff_vs_role_opp"] = model["golds"] - model["opponent_golds"]
+    model["vision_diff_vs_role_opp"] = model["vision_score"] - model["opponent_vision_score"]
+    model["damage_diff_vs_role_opp"] = (
+        model["total_damage_to_champion"] - model["opponent_total_damage_to_champion"]
+    )
+
+    ordered_columns = [
+        "game_block_id",
+        "game_id",
+        "Date",
+        "Tournament",
+        "Game",
+        "player_id",
+        "player_name",
+        "role",
+        "Champion",
+        "Result",
+        "Duration",
+        "level",
+        "kills",
+        "deaths",
+        "assists",
+        "cs",
+        "golds",
+        "vision_score",
+        "solo_kills",
+        "double_kills",
+        "triple_kills",
+        "quadra_kills",
+        "penta_kills",
+        "gd_at_15",
+        "csd_at_15",
+        "xpd_at_15",
+        "lvld_at_15",
+        "objectives_stolen",
+        "damage_dealt_to_buildings",
+        "total_heal",
+        "total_heals_on_teammates",
+        "damage_self_mitigated",
+        "total_damage_shielded_on_teammates",
+        "total_time_cc_dealt",
+        "total_damage_taken",
+        "total_time_spent_dead",
+        "shutdown_bounty_collected",
+        "shutdown_bounty_lost",
+        "total_damage_to_champion",
+        "team_kills",
+        "team_deaths",
+        "team_assists",
+        "team_cs",
+        "team_golds",
+        "team_vision_score",
+        "team_total_damage_to_champion",
+        "kills_diff_vs_role_opp",
+        "deaths_diff_vs_role_opp",
+        "assists_diff_vs_role_opp",
+        "cs_diff_vs_role_opp",
+        "golds_diff_vs_role_opp",
+        "vision_diff_vs_role_opp",
+        "damage_diff_vs_role_opp",
+    ]
+    return model[ordered_columns].sort_values(
+        ["game_block_id", "Result", "role", "player_name"]
+    ).reset_index(drop=True)
+
+
+def build_role_normalization_comparison_table(model_ready: pd.DataFrame) -> pd.DataFrame:
+    comparison = model_ready[
+        [
+            "game_block_id",
+            "game_id",
+            "Date",
+            "Tournament",
+            "Game",
+            "player_id",
+            "player_name",
+            "role",
+            "Champion",
+            "Result",
+            "Duration",
+            "kills",
+            "cs",
+            "golds",
+            "vision_score",
+            "total_heals_on_teammates",
+            "damage_self_mitigated",
+            "total_damage_to_champion",
+        ]
+    ].copy()
+
+    role_normalized_stats = [
+        "kills",
+        "cs",
+        "golds",
+        "vision_score",
+        "total_heals_on_teammates",
+        "damage_self_mitigated",
+        "total_damage_to_champion",
+    ]
+    for stat in role_normalized_stats:
+        comparison[f"{stat}_minus_role_mean"] = center_by_role(comparison[stat], comparison["role"])
+        comparison[f"{stat}_role_z"] = zscore_by_role(comparison[stat], comparison["role"])
+
+    return comparison.sort_values(["game_block_id", "Result", "role", "player_name"]).reset_index(drop=True)
+
+
+def build_model_ready_role_zscore_table(model_ready: pd.DataFrame) -> pd.DataFrame:
+    z_table = model_ready.copy()
+    z_table["Result"] = (z_table["Result"] == "Victory").astype(int)
+    z_table["Duration"] = z_table["Duration"].astype(str).map(parse_duration_minutes)
+    z_table["team_id"] = z_table["game_block_id"].astype(str) + "_" + z_table["Result"].astype(str)
+
+    player_role_stats = [
+        "level",
+        "kills",
+        "deaths",
+        "assists",
+        "cs",
+        "golds",
+        "vision_score",
+        "solo_kills",
+        "double_kills",
+        "triple_kills",
+        "quadra_kills",
+        "penta_kills",
+        "gd_at_15",
+        "csd_at_15",
+        "xpd_at_15",
+        "lvld_at_15",
+        "objectives_stolen",
+        "damage_dealt_to_buildings",
+        "total_heal",
+        "total_heals_on_teammates",
+        "damage_self_mitigated",
+        "total_damage_shielded_on_teammates",
+        "total_time_cc_dealt",
+        "total_damage_taken",
+        "total_time_spent_dead",
+        "shutdown_bounty_collected",
+        "shutdown_bounty_lost",
+        "total_damage_to_champion",
+        "kills_diff_vs_role_opp",
+        "deaths_diff_vs_role_opp",
+        "assists_diff_vs_role_opp",
+        "cs_diff_vs_role_opp",
+        "golds_diff_vs_role_opp",
+        "vision_diff_vs_role_opp",
+        "damage_diff_vs_role_opp",
+    ]
+    team_stats = [
+        "team_kills",
+        "team_deaths",
+        "team_assists",
+        "team_cs",
+        "team_golds",
+        "team_vision_score",
+        "team_total_damage_to_champion",
+    ]
+
+    for col in player_role_stats:
+        z_table[col] = zscore_by_role(pd.to_numeric(z_table[col], errors="coerce"), z_table["role"])
+    z_table["Duration"] = zscore_from_unique_groups(z_table, "game_block_id", "Duration")
+    for col in team_stats:
+        z_table[col] = zscore_from_unique_groups(z_table, "team_id", col)
+
+    z_table = z_table.drop(columns=["team_id"])
+
+    return z_table.sort_values(["game_block_id", "Result", "role", "player_name"]).reset_index(drop=True)
 
 
 def build_player_summary(features: pd.DataFrame) -> pd.DataFrame:
@@ -280,6 +588,71 @@ def plot_feature_heatmap(features: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_model_ready_feature_heatmap(model_ready: pd.DataFrame, out_path: Path) -> None:
+    corr_frame = model_ready.copy()
+    corr_frame["Result"] = (corr_frame["Result"] == "Victory").astype(int)
+    corr_frame["Duration"] = corr_frame["Duration"].astype(str).map(parse_duration_minutes)
+
+    columns = list(corr_frame.columns[corr_frame.columns.get_loc("Result") :])
+    corr = corr_frame[columns].corr().round(2)
+
+    # Wider figure so the full selected feature set remains readable.
+    fig, ax = plt.subplots(figsize=(20, 18))
+    image = ax.imshow(corr.values, cmap="coolwarm", vmin=-1, vmax=1)
+    ax.set_xticks(range(len(columns)))
+    ax.set_xticklabels(columns, rotation=90, ha="center", fontsize=8)
+    ax.set_yticks(range(len(columns)))
+    ax.set_yticklabels(columns, fontsize=8)
+    ax.set_title("Model-Ready Feature Correlation Heatmap")
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_role_normalization_comparison(comparison: pd.DataFrame, out_path: Path) -> None:
+    stats = [
+        ("kills", "Kills"),
+        ("cs", "CS"),
+        ("golds", "Gold"),
+        ("vision_score", "Vision Score"),
+        ("total_heals_on_teammates", "Heals On Teammates"),
+        ("damage_self_mitigated", "Damage Self Mitigated"),
+        ("total_damage_to_champion", "Damage To Champions"),
+    ]
+    roles = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
+
+    fig, axes = plt.subplots(len(stats), 3, figsize=(18, 3.6 * len(stats)))
+    if len(stats) == 1:
+        axes = np.array([axes])
+
+    for row_idx, (stat, title) in enumerate(stats):
+        raw_ax, centered_ax, z_ax = axes[row_idx]
+
+        raw_values = [comparison.loc[comparison["role"] == role, stat].dropna() for role in roles]
+        centered_values = [
+            comparison.loc[comparison["role"] == role, f"{stat}_minus_role_mean"].dropna()
+            for role in roles
+        ]
+        z_values = [comparison.loc[comparison["role"] == role, f"{stat}_role_z"].dropna() for role in roles]
+
+        raw_ax.boxplot(raw_values, tick_labels=roles, patch_artist=True)
+        centered_ax.boxplot(centered_values, tick_labels=roles, patch_artist=True)
+        z_ax.boxplot(z_values, tick_labels=roles, patch_artist=True)
+
+        raw_ax.set_title(f"{title}: Raw")
+        centered_ax.set_title(f"{title}: Minus Role Mean")
+        z_ax.set_title(f"{title}: Role Z-Score")
+
+        for ax in (raw_ax, centered_ax, z_ax):
+            ax.grid(alpha=0.25, axis="y")
+
+    fig.suptitle("Role Normalization Comparison For Selected Model Inputs", fontsize=15)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_player_skill_scatter(player_summary: pd.DataFrame, out_path: Path) -> None:
     role_colors = {
         "TOP": "#2E86AB",
@@ -370,7 +743,9 @@ def plot_teammate_heatmap(pair_summary: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
-def write_summary(features: pd.DataFrame, player_summary: pd.DataFrame, pair_summary: pd.DataFrame, out_path: Path) -> None:
+def write_comprehension_summary(
+    features: pd.DataFrame, player_summary: pd.DataFrame, pair_summary: pd.DataFrame, out_path: Path
+) -> None:
     top_players = player_summary[player_summary["games"] >= 20].nlargest(10, "avg_performance")[
         ["player_name", "role", "games", "win_rate", "avg_performance", "avg_dpm", "avg_kp_pct"]
     ]
@@ -400,7 +775,7 @@ def write_summary(features: pd.DataFrame, player_summary: pd.DataFrame, pair_sum
         return "\n".join(lines)
 
     lines = [
-        "# LCK S15 Games Blocked Analysis",
+        "# LCK S15 Data Comprehension Summary",
         "",
         f"- Rows: {len(features)}",
         f"- Game blocks: {features['game_block_id'].nunique()}",
@@ -408,7 +783,7 @@ def write_summary(features: pd.DataFrame, player_summary: pd.DataFrame, pair_sum
         f"- Roles: {', '.join(sorted(features['role'].unique()))}",
         "",
         "## Scope",
-        "- All engineered columns come from `data/lck_s15_games_blocked.csv` only.",
+        "- All engineered columns come from `data/lck_s15_games.csv` only.",
         "- No external gold, vision, economy, draft, or timeline data is used in this analysis.",
         "- Each derived feature is either a direct transformation of one CSV column or an aggregation within the same `game_block_id`.",
         "",
@@ -452,27 +827,115 @@ def write_summary(features: pd.DataFrame, player_summary: pd.DataFrame, pair_sum
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def write_feature_selection_summary(out_path: Path) -> None:
+    lines = [
+        "# LCK S15 Feature Selection Summary",
+        "",
+        "## Purpose",
+        "- This file records the current model-ready feature choices.",
+        "- It is meant to stay separate from the general comprehension/EDA notes.",
+        "",
+        "## Current Model-Ready Export",
+        "- `data/lck_s15_games_MODEL-READY.csv` is produced by `data scripts/analyze_lck_s15_data.py` from `data/lck_s15_games.csv`.",
+        "- One row per player-game.",
+        "- `Duration` is kept as an explicit raw input rather than replacing it with per-minute derived stats.",
+        "- This file is intentionally kept raw for now.",
+        "",
+        "## Included Raw Player Stats",
+        "- `Result`, `Duration`, `level`, `kills`, `deaths`, `assists`, `cs`, `golds`, `vision_score`",
+        "- `solo_kills`, `double_kills`, `triple_kills`, `quadra_kills`, `penta_kills`",
+        "- `gd_at_15`, `csd_at_15`, `xpd_at_15`, `lvld_at_15`",
+        "- `objectives_stolen`, `damage_dealt_to_buildings`",
+        "- `total_heal`, `total_heals_on_teammates`, `damage_self_mitigated`, `total_damage_shielded_on_teammates`",
+        "- `total_time_cc_dealt`, `total_damage_taken`, `total_time_spent_dead`",
+        "- `shutdown_bounty_collected`, `shutdown_bounty_lost`, `total_damage_to_champion`",
+        "",
+        "## Excluded Raw / Derived Stats",
+        "- `KDA`",
+        "- `CSM`, `DPM`, `gpm` and similar per-minute rate features in the model-ready export",
+        "- `consumables_purchased`, `items_purchased`",
+        "- ward subcomponent fields such as `wards_placed`, `wards_destroyed`, `control_wards_purchased`",
+        "- `damage_dealt_to_turrets`, `time_ccing_others`",
+        "",
+        "## Included Team Context",
+        "- `team_kills`, `team_deaths`, `team_assists`, `team_cs`, `team_golds`, `team_vision_score`, `team_total_damage_to_champion`",
+        "- These are included explicitly so the model can see team-level context without needing the full 10-player game table at inference time.",
+        "",
+        "## Included Same-Role Opponent Differences",
+        "- `kills_diff_vs_role_opp`, `deaths_diff_vs_role_opp`, `assists_diff_vs_role_opp`, `cs_diff_vs_role_opp`",
+        "- `golds_diff_vs_role_opp`, `vision_diff_vs_role_opp`, `damage_diff_vs_role_opp`",
+        "",
+        "## Role-Normalization Comparison File",
+        "- `data/role_normalization_comparison.csv` is a separate comparison file and is not meant to be mixed into the training table by default.",
+        "- For `kills`, `cs`, `golds`, `vision_score`, `total_heals_on_teammates`, `damage_self_mitigated`, and `total_damage_to_champion`, it includes:",
+        "- `*_minus_role_mean`",
+        "- `*_role_z`",
+        "- These are included for comparison and discussion, not yet as a final commitment to one normalization strategy.",
+        "",
+        "## Z-Scored Modeling File",
+        "- `data/lck_s15_games_MODEL-READY_role_zscored.csv` is a separate standardized version of the model-ready file.",
+        "- Player-centric stats are z-scored within role.",
+        "- `Duration` is z-scored at the unique-game level.",
+        "- Team-total context columns are z-scored at the unique-team level rather than by role.",
+        "- `Result` is encoded as `1` for `Victory` and `0` for `Defeat` in that file.",
+        "",
+        "## Analysis Plots Relevant To Selection",
+        "- `plots/model_ready_feature_correlation_heatmap.png`: correlation matrix over all columns from `Result` onward in the model-ready CSV, with `Result` encoded as `1/0` and `Duration` converted to decimal minutes.",
+        "- `plots/role_normalization_comparison.png`: compares raw, role-centered, and role-z-scored versions of the selected normalization stats.",
+    ]
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     features = load_features(DATA_PATH)
+    model_ready = build_model_ready_table(features)
+    role_comparison = build_role_normalization_comparison_table(model_ready)
+    model_ready_zscored = build_model_ready_role_zscore_table(model_ready)
     player_summary = build_player_summary(features)
     pair_summary = build_pair_summary(features)
 
     features.to_csv(OUT_DIR / "lck_s15_model_features.csv", index=False)
     player_summary.to_csv(OUT_DIR / "lck_s15_player_summary.csv", index=False)
     pair_summary.to_csv(OUT_DIR / "lck_s15_teammate_pairs.csv", index=False)
+    model_ready.to_csv(MODEL_READY_PATH, index=False)
+    model_ready_zscored.to_csv(MODEL_READY_ZSCORED_PATH, index=False)
 
     plot_role_distributions(features, PLOTS_DIR / "role_distributions.png")
     plot_feature_heatmap(features, PLOTS_DIR / "feature_correlation_heatmap.png")
+    plot_model_ready_feature_heatmap(model_ready, PLOTS_DIR / "model_ready_feature_correlation_heatmap.png")
+    plot_role_normalization_comparison(
+        role_comparison, PLOTS_DIR / "role_normalization_comparison.png"
+    )
     plot_player_skill_scatter(player_summary, PLOTS_DIR / "player_skill_scatter.png")
     plot_top_players(player_summary, PLOTS_DIR / "top_players_skill_proxy.png")
     plot_teammate_heatmap(pair_summary, PLOTS_DIR / "teammate_influence_heatmap.png")
 
-    write_summary(features, player_summary, pair_summary, OUT_DIR / "analysis_summary.md")
+    comprehension_path = OUT_DIR / "_analysis_comprehension.tmp.md"
+    selection_path = OUT_DIR / "_feature_selection_summary.tmp.md"
+    summary_path = OUT_DIR / "analysis.md"
+    write_comprehension_summary(features, player_summary, pair_summary, comprehension_path)
+    write_feature_selection_summary(selection_path)
+    combined_summary = (
+        comprehension_path.read_text(encoding="utf-8").rstrip()
+        + "\n\n---\n\n"
+        + selection_path.read_text(encoding="utf-8").lstrip()
+    )
+    summary_path.write_text(combined_summary, encoding="utf-8")
+    comprehension_path.unlink(missing_ok=True)
+    selection_path.unlink(missing_ok=True)
+    (OUT_DIR / "analysis_summary.md").unlink(missing_ok=True)
+    (OUT_DIR / "analysis_comprehension.md").unlink(missing_ok=True)
+    (OUT_DIR / "feature_selection_summary.md").unlink(missing_ok=True)
+
+    role_comparison.to_csv(ROLE_NORMALIZATION_PATH, index=False)
 
     print(f"Saved feature table to {OUT_DIR / 'lck_s15_model_features.csv'}")
+    print(f"Saved model-ready file to {MODEL_READY_PATH}")
+    print(f"Saved role-normalization comparison file to {ROLE_NORMALIZATION_PATH}")
+    print(f"Saved role-zscored model-ready file to {MODEL_READY_ZSCORED_PATH}")
     print(f"Saved player summary to {OUT_DIR / 'lck_s15_player_summary.csv'}")
     print(f"Saved pair summary to {OUT_DIR / 'lck_s15_teammate_pairs.csv'}")
     print(f"Saved plots to {PLOTS_DIR}")

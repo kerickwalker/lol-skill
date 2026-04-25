@@ -26,8 +26,8 @@ TOURNAMENTS = [
 ]
 
 OUT_ROOT = Path("data/LCK_S15_games")
-OUT_BLOCKED = Path("data/lck_s15_games_blocked.csv")
-OUT_PLAYER_AGG_CSV = Path("data/lck_s15_player_aggregated.csv")
+OUT_BLOCKED = Path("data/lck_s15_games.csv")
+OUT_PLAYER_AGG_CSV = Path("data/player_stats.csv")
 
 
 def tournament_display_name(folder_name: str) -> str:
