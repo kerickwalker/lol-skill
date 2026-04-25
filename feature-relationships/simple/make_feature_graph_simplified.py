@@ -7,14 +7,13 @@ from pathlib import Path
 from html import escape
 
 BASE = Path(__file__).resolve().parent
-CSV_PATH = BASE / "lck_s15_games_MODEL-READY.csv"
+CSV_PATH = BASE.parent.parent / "data" / "lck_s15_games_MODEL-READY.csv"
 OUT_GROUPED_HTML = BASE / "lck_s15_feature_relationship_graph_simplified_grouped.html"
 OUT_FLOWY_HTML = BASE / "lck_s15_feature_relationship_graph_simplified_flowy.html"
 OUT_EDGES = BASE / "lck_s15_feature_relationship_edges_simplified.csv"
 OUT_NODES = BASE / "lck_s15_feature_relationship_nodes_simplified.csv"
-OUT_DISCUSSION = BASE / "feature_relationship_scale_discussion_points.md"
 
-EXCLUDED_COLUMNS = {"lvld_at_15"}
+EXCLUDED_COLUMNS: set[str] = set()
 DISPLAY_RENAMES = {
     "kills_diff_vs_role_opp": "kills_diff",
     "deaths_diff_vs_role_opp": "deaths_diff",
@@ -256,43 +255,7 @@ function applyEdgeFilters() {{
 make_html("grouped", OUT_GROUPED_HTML)
 make_html("flowy", OUT_FLOWY_HTML)
 
-OUT_DISCUSSION.write_text("""### Additional Relationship-Type Discussion Points
-
-**1. Duration as an exposure variable**
-
-Raw counting stats often increase in longer games because there is more time for events to occur. This applies naturally to team-level totals such as `team_kills`, `team_deaths`, `team_assists`, `team_cs`, `team_golds`, and total team damage. It can also apply to player-level stats, but the relationship is weaker because the additional events are distributed across five players and depend heavily on role, champion, game state, and team strategy.
-
-Because of this, it is safer to interpret duration relationships as **exposure effects** rather than direct causal effects. A possible graph edge would be `Duration -> team_kills` or `Duration -> team_deaths` labeled as `scales_with`, while player-level edges such as `Duration -> kills` should be treated more cautiously.
-
-**2. Player raw stats and same-role difference stats**
-
-A same-role difference stat is partly derived from the player stat and the opposing same-role player's stat. For example, `kills_diff` is related to the player's `kills`, but it is not simply the same variable because it also depends on the opponent's kills.
-
-This means raw stats and same-role difference stats should not be treated as independent evidence. However, the relationship is not a clean direct causal mechanism. It is better described as a **derived comparison** or **relative-performance relationship**.
-
-A possible edge type for this would be `relative_to_opponent`, for example `kills -> kills_diff`, but this should be visually distinct from `directly increases` because the value of `kills_diff` also depends on the opponent.
-
-**3. Fifteen-minute checkpoint stats and full-game difference stats**
-
-The `*_at_15` variables are early-game checkpoints, while the role-opponent difference variables describe a broader same-role performance difference. For example, `csd_at_15` is an early checkpoint related to lane or role advantage, while `cs_diff` describes the final or full-game CS difference against the same-role opponent.
-
-In League of Legends, early advantages can snowball into later advantages through gold, experience, map control, and item timing. Therefore, it is reasonable to discuss a soft relationship from `*_at_15` features to later `*_diff` features.
-
-However, this is not deterministic. A player can have an early advantage and lose it later, or recover from an early deficit. These edges should therefore be labeled as **snowball tendency** or `snowballs_into`, not as direct causal effects.
-
-**4. Recommended graph treatment**
-
-For the conservative graph, keep only strong direct mechanisms, preconditions, and component relationships. Duration effects, raw-to-difference relationships, and early-to-late snowball relationships are useful discussion points, but they should be added later using softer edge types such as:
-
-- `scales_with` for duration and exposure effects
-- `relative_to_opponent` for raw stat to same-role difference relationships
-- `snowballs_into` for early-game checkpoint advantages influencing later advantages
-
-This keeps the graph useful without overstating causal certainty.
-""", encoding="utf-8")
-
 print(f"Wrote {OUT_GROUPED_HTML}")
 print(f"Wrote {OUT_FLOWY_HTML}")
 print(f"Wrote {OUT_EDGES}")
 print(f"Wrote {OUT_NODES}")
-print(f"Wrote {OUT_DISCUSSION}")

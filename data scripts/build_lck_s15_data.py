@@ -479,10 +479,11 @@ def main() -> None:
     extra_columns = [
         column
         for column in merged.columns
-        if column not in final.columns and column not in {"game_block_id_local", "tournament_folder", "game_url", "fullstats_role"}
+        if column not in final.columns and column not in {"game_block_id_local", "tournament_folder", "game_url", "fullstats_role", "lvld_at_15"}
     ]
     if extra_columns:
         final = pd.concat([final, merged[extra_columns]], axis=1)
+    final = final.drop(columns=["lvld_at_15"], errors="ignore")
     final.to_csv(OUT_BLOCKED, index=False)
 
     final = make_excel_safe_copy(final)

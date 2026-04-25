@@ -1,0 +1,27 @@
+source,target,source_label,target_label,kind,note
+cs,golds,cs,golds,directly_increases,cs directly contributes to player gold
+kills,golds,kills,golds,directly_increases,kills directly contributes to player gold
+assists,golds,assists,golds,directly_increases,assists directly contributes to player gold
+shutdown_bounty_collected,golds,shutdown_bounty_collected,golds,directly_increases,shutdown_bounty_collected directly contributes to player gold
+team_cs,team_golds,team_cs,team_golds,directly_increases,team_cs directly contributes to team gold
+team_kills,team_golds,team_kills,team_golds,directly_increases,team_kills directly contributes to team gold
+team_assists,team_golds,team_assists,team_golds,directly_increases,team_assists directly contributes to team gold
+csd_at_15,gd_at_15,csd_at_15,gd_at_15,directly_increases,CS difference contributes to gold difference at 15 minutes
+cs_diff_vs_role_opp,golds_diff_vs_role_opp,cs_diff,golds_diff,directly_increases,cs_diff_vs_role_opp contributes to same-role gold difference
+kills_diff_vs_role_opp,golds_diff_vs_role_opp,kills_diff,golds_diff,directly_increases,kills_diff_vs_role_opp contributes to same-role gold difference
+assists_diff_vs_role_opp,golds_diff_vs_role_opp,assists_diff,golds_diff,directly_increases,assists_diff_vs_role_opp contributes to same-role gold difference
+kills,team_kills,kills,team_kills,component_of,kills is one component of team_kills
+deaths,team_deaths,deaths,team_deaths,component_of,deaths is one component of team_deaths
+assists,team_assists,assists,team_assists,component_of,assists is one component of team_assists
+cs,team_cs,cs,team_cs,component_of,cs is one component of team_cs
+golds,team_golds,golds,team_golds,component_of,golds is one component of team_golds
+vision_score,team_vision_score,vision_score,team_vision_score,component_of,vision_score is one component of team_vision_score
+total_damage_to_champion,team_total_damage_to_champion,total_damage_to_champion,team_total_damage_to_champion,component_of,total_damage_to_champion is one component of team_total_damage_to_champion
+total_heals_on_teammates,total_heal,total_heals_on_teammates,total_heal,component_of,total_heals_on_teammates is one component of total_heal
+deaths,total_time_spent_dead,deaths,total_time_spent_dead,directly_increases,More deaths directly create more death timers
+kills,shutdown_bounty_collected,kills,shutdown_bounty_collected,precondition,"A kill is required for shutdown_bounty_collected, but not every kill creates one"
+kills,solo_kills,kills,solo_kills,precondition,"A kill is required for solo_kills, but not every kill creates one"
+kills,double_kills,kills,double_kills,precondition,"A kill is required for double_kills, but not every kill creates one"
+kills,triple_kills,kills,triple_kills,precondition,"A kill is required for triple_kills, but not every kill creates one"
+kills,quadra_kills,kills,quadra_kills,precondition,"A kill is required for quadra_kills, but not every kill creates one"
+kills,penta_kills,kills,penta_kills,precondition,"A kill is required for penta_kills, but not every kill creates one"

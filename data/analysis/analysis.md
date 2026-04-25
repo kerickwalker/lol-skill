@@ -88,7 +88,7 @@
 ## Included Raw Player Stats
 - `Result`, `Duration`, `level`, `kills`, `deaths`, `assists`, `cs`, `golds`, `vision_score`
 - `solo_kills`, `double_kills`, `triple_kills`, `quadra_kills`, `penta_kills`
-- `gd_at_15`, `csd_at_15`, `xpd_at_15`, `lvld_at_15`
+- `gd_at_15`, `csd_at_15`, `xpd_at_15`
 - `objectives_stolen`, `damage_dealt_to_buildings`
 - `total_heal`, `total_heals_on_teammates`, `damage_self_mitigated`, `total_damage_shielded_on_teammates`
 - `total_time_cc_dealt`, `total_damage_taken`, `total_time_spent_dead`

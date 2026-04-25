@@ -60,7 +60,7 @@ Additional full-stats fields include examples such as:
 - `cs`, `golds`, `gpm`
 - `vision_score`, `wards_placed`, `wards_destroyed`, `control_wards_purchased`
 - `solo_kills`
-- `gd_at_15`, `csd_at_15`, `xpd_at_15`, `lvld_at_15`
+- `gd_at_15`, `csd_at_15`, `xpd_at_15`
 - `damage_dealt_to_turrets`, `damage_dealt_to_buildings`
 - `total_damage_taken`, `total_time_spent_dead`
 
@@ -273,7 +273,7 @@ Reasoning:
 
 Counterexamples or weaker duration dependence:
 
-- fixed-time lane stats such as `gd_at_15`, `csd_at_15`, `xpd_at_15`, `lvld_at_15`
+- fixed-time lane stats such as `gd_at_15`, `csd_at_15`, `xpd_at_15`
 - event-count stats like `solo_kills`, which can still depend on game flow but are not expected to grow as smoothly with duration
 
 ### 2. Gold as a Central Causal Variable
@@ -305,7 +305,7 @@ Likely causal links:
 
 - `csd_at_15` contributes to `gd_at_15`
 - kill or assist advantage before 15 minutes can also contribute to `gd_at_15`
-- stronger early gold and farm state often also appears together with `xpd_at_15` and `lvld_at_15`
+- stronger early gold and farm state often also appears together with `xpd_at_15`
 
 So these 15-minute variables are not independent pieces of evidence. They are different views of early-game advantage.
 
@@ -445,5 +445,3 @@ This keeps the graph useful without overstating causal certainty.
 
 These distinctions are important to avoid over-interpreting relationships in the model.  
 Only a subset of edges (such as gold generation from kills or CS) should be treated as strong causal mechanisms, while others reflect constraints or scaling effects.
-
-# !! remove lvld_at_15 since it is just a less detailed metric of xpd_at_15
