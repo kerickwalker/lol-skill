@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>LCK S15 Feature Relationship Graph</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #fafafa; color: #222; }
+    header { padding: 10px 14px; border-bottom: 1px solid #ddd; background: white; max-height: 24vh; overflow:auto; }
+    #graph { width: 100vw; height: 76vh; background: #fff; }
+    .legend-block { margin-top: 4px; }
+    .legend-title { font-weight: 700; margin-right: 8px; }
+    .legend { font-size: 13px; display: flex; gap: 10px 14px; flex-wrap: wrap; align-items:center; }
+    .legend-item { white-space: nowrap; }
+    .edge-swatch { display:inline-block; width: 26px; border-top: 3px solid #777; vertical-align: middle; margin-right: 5px; }
+    .node-dot { display:inline-block; width: 13px; height: 13px; border: 2px solid #777; border-radius: 50%; vertical-align: middle; margin-right: 5px; }
+    .check { margin-right: 16px; white-space: nowrap; }
+    input[type="checkbox"] { transform: translateY(1px); }
+  </style>
+</head>
+<body>
+<header>
+  <div class="legend-block"><span class="legend-title">Node groups:</span><div class="legend"><span class="legend-item"><span class="node-dot" style="background:#fdae61; border-color:#d73027;"></span>game info</span><span class="legend-item"><span class="node-dot" style="background:#fee090; border-color:#e6ab02;"></span>raw stats</span><span class="legend-item"><span class="node-dot" style="background:#f1eef6; border-color:#8856a7;"></span>additional stats</span><span class="legend-item"><span class="node-dot" style="background:#fbb4ae; border-color:#e41a1c;"></span>multi kills</span><span class="legend-item"><span class="node-dot" style="background:#abd9e9; border-color:#2c7bb6;"></span>team context</span><span class="legend-item"><span class="node-dot" style="background:#d9ef8b; border-color:#66a61e;"></span>opponent diff</span></div></div>
+  <div class="legend-block"><span class="legend-title">Edge types:</span><div class="legend"><span class="legend-item"><span class="edge-swatch" style="border-top-color:#d73027; "></span>directly increases</span><span class="legend-item"><span class="edge-swatch" style="border-top-color:#4575b4; border-top-style:dashed;"></span>component of</span><span class="legend-item"><span class="edge-swatch" style="border-top-color:#984ea3; border-top-style:dashed;"></span>precondition</span></div></div>
+  <div class="legend-block"><span class="legend-title">Show edges:</span><label class="check"><input type="checkbox" class="edge-toggle" data-kind="directly_increases" checked onchange="applyEdgeFilters()"> directly increases</label><label class="check"><input type="checkbox" class="edge-toggle" data-kind="component_of" checked onchange="applyEdgeFilters()"> component of</label><label class="check"><input type="checkbox" class="edge-toggle" data-kind="precondition" checked onchange="applyEdgeFilters()"> precondition</label></div>
+</header>
+<div id="graph"></div>
+<script>
+const nodes = new vis.DataSet([
+  {
+    "id": "Result",
+    "label": "Result",
+    "group": "game_info",
+    "title": "Result<br>label: Result<br>group: game info<br>degree: 0",
+    "value": 1,
+    "x": -500.0,
+    "y": -340.0,
+    "physics": true
+  },
+  {
+    "id": "Duration",
+    "label": "Duration",
+    "group": "game_info",
+    "title": "Duration<br>label: Duration<br>group: game info<br>degree: 0",
+    "value": 1,
+    "x": -620.0,
+    "y": -340.0,
+    "physics": true
+  },
+  {
+    "id": "level",
+    "label": "level",
+    "group": "raw_stats",
+    "title": "level<br>label: level<br>group: raw stats<br>degree: 0",
+    "value": 1,
+    "x": -433.0,
+    "y": 0.0,
+    "physics": true
+  },
+  {
+    "id": "kills",
+    "label": "kills",
+    "group": "raw_stats",
+    "title": "kills<br>label: kills<br>group: raw stats<br>degree: 8",
+    "value": 9,
+    "x": -470.2,
+    "y": 64.7,
+    "physics": true
+  },
+  {
+    "id": "deaths",
+    "label": "deaths",
+    "group": "raw_stats",
+    "title": "deaths<br>label: deaths<br>group: raw stats<br>degree: 2",
+    "value": 3,
+    "x": -560.0,
+    "y": 91.4,
+    "physics": true
+  },
+  {
+    "id": "assists",
+    "label": "assists",
+    "group": "raw_stats",
+    "title": "assists<br>label: assists<br>group: raw stats<br>degree: 2",
+    "value": 3,
+    "x": -649.8,
+    "y": 64.7,
+    "physics": true
+  },
+  {
+    "id": "cs",
+    "label": "cs",
+    "group": "raw_stats",
+    "title": "cs<br>label: cs<br>group: raw stats<br>degree: 2",
+    "value": 3,
+    "x": -687.0,
+    "y": 0.0,
+    "physics": true
+  },
+  {
+    "id": "golds",
+    "label": "golds",
+    "group": "raw_stats",
+    "title": "golds<br>label: golds<br>group: raw stats<br>degree: 5",
+    "value": 6,
+    "x": -649.8,
+    "y": -64.7,
+    "physics": true
+  },
+  {
+    "id": "vision_score",
+    "label": "vision_score",
+    "group": "raw_stats",
+    "title": "vision_score<br>label: vision_score<br>group: raw stats<br>degree: 1",
+    "value": 2,
+    "x": -560.0,
+    "y": -91.4,
+    "physics": true
+  },
+  {
+    "id": "solo_kills",
+    "label": "solo_kills",
+    "group": "additional_stats",
+    "title": "solo_kills<br>label: solo_kills<br>group: additional stats<br>degree: 1",
+    "value": 2,
+    "x": -417.0,
+    "y": 340.0,
+    "physics": true
+  },
+  {
+    "id": "double_kills",
+    "label": "double_kills",
+    "group": "multi_kills",
+    "title": "double_kills<br>label: double_kills<br>group: multi kills<br>degree: 1",
+    "value": 2,
+    "x": 111.0,
+    "y": 340.0,
+    "physics": true
+  },
+  {
+    "id": "triple_kills",
+    "label": "triple_kills",
+    "group": "multi_kills",
+    "title": "triple_kills<br>label: triple_kills<br>group: multi kills<br>degree: 1",
+    "value": 2,
+    "x": 0.0,
+    "y": 419.9,
+    "physics": true
+  },
+  {
+    "id": "quadra_kills",
+    "label": "quadra_kills",
+    "group": "multi_kills",
+    "title": "quadra_kills<br>label: quadra_kills<br>group: multi kills<br>degree: 1",
+    "value": 2,
+    "x": -111.0,
+    "y": 340.0,
+    "physics": true
+  },
+  {
+    "id": "penta_kills",
+    "label": "penta_kills",
+    "group": "multi_kills",
+    "title": "penta_kills<br>label: penta_kills<br>group: multi kills<br>degree: 1",
+    "value": 2,
+    "x": -0.0,
+    "y": 260.1,
+    "physics": true
+  },
+  {
+    "id": "gd_at_15",
+    "label": "gd_at_15",
+    "group": "opponent_diff",
+    "title": "gd_at_15<br>label: gd_at_15<br>group: opponent diff<br>degree: 1",
+    "value": 2,
+    "x": 655.0,
+    "y": 220.0,
+    "physics": true
+  },
+  {
+    "id": "csd_at_15",
+    "label": "csd_at_15",
+    "group": "opponent_diff",
+    "title": "csd_at_15<br>label: csd_at_15<br>group: opponent diff<br>degree: 1",
+    "value": 2,
+    "x": 629.2,
+    "y": 277.1,
+    "physics": true
+  },
+  {
+    "id": "xpd_at_15",
+    "label": "xpd_at_15",
+    "group": "opponent_diff",
+    "title": "xpd_at_15<br>label: xpd_at_15<br>group: opponent diff<br>degree: 0",
+    "value": 1,
+    "x": 561.7,
+    "y": 312.4,
+    "physics": true
+  },
+  {
+    "id": "objectives_stolen",
+    "label": "objectives_stolen",
+    "group": "additional_stats",
+    "title": "objectives_stolen<br>label: objectives_stolen<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -436.2,
+    "y": 391.5,
+    "physics": true
+  },
+  {
+    "id": "damage_dealt_to_buildings",
+    "label": "damage_dealt_to_buildings",
+    "group": "additional_stats",
+    "title": "damage_dealt_to_buildings<br>label: damage_dealt_to_buildings<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -488.5,
+    "y": 429.2,
+    "physics": true
+  },
+  {
+    "id": "total_heal",
+    "label": "total_heal",
+    "group": "additional_stats",
+    "title": "total_heal<br>label: total_heal<br>group: additional stats<br>degree: 1",
+    "value": 2,
+    "x": -560.0,
+    "y": 443.0,
+    "physics": true
+  },
+  {
+    "id": "total_heals_on_teammates",
+    "label": "total_heals_on_teammates",
+    "group": "additional_stats",
+    "title": "total_heals_on_teammates<br>label: total_heals_on_teammates<br>group: additional stats<br>degree: 1",
+    "value": 2,
+    "x": -631.5,
+    "y": 429.2,
+    "physics": true
+  },
+  {
+    "id": "damage_self_mitigated",
+    "label": "damage_self_mitigated",
+    "group": "additional_stats",
+    "title": "damage_self_mitigated<br>label: damage_self_mitigated<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -683.8,
+    "y": 391.5,
+    "physics": true
+  },
+  {
+    "id": "total_damage_shielded_on_teammates",
+    "label": "total_damage_shielded_on_teammates",
+    "group": "additional_stats",
+    "title": "total_damage_shielded_on_teammates<br>label: total_damage_shielded_on_teammates<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -703.0,
+    "y": 340.0,
+    "physics": true
+  },
+  {
+    "id": "total_time_cc_dealt",
+    "label": "total_time_cc_dealt",
+    "group": "additional_stats",
+    "title": "total_time_cc_dealt<br>label: total_time_cc_dealt<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -683.8,
+    "y": 288.5,
+    "physics": true
+  },
+  {
+    "id": "total_damage_taken",
+    "label": "total_damage_taken",
+    "group": "additional_stats",
+    "title": "total_damage_taken<br>label: total_damage_taken<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -631.5,
+    "y": 250.8,
+    "physics": true
+  },
+  {
+    "id": "total_time_spent_dead",
+    "label": "total_time_spent_dead",
+    "group": "additional_stats",
+    "title": "total_time_spent_dead<br>label: total_time_spent_dead<br>group: additional stats<br>degree: 1",
+    "value": 2,
+    "x": -560.0,
+    "y": 237.0,
+    "physics": true
+  },
+  {
+    "id": "shutdown_bounty_collected",
+    "label": "shutdown_bounty_collected",
+    "group": "additional_stats",
+    "title": "shutdown_bounty_collected<br>label: shutdown_bounty_collected<br>group: additional stats<br>degree: 2",
+    "value": 3,
+    "x": -488.5,
+    "y": 250.8,
+    "physics": true
+  },
+  {
+    "id": "shutdown_bounty_lost",
+    "label": "shutdown_bounty_lost",
+    "group": "additional_stats",
+    "title": "shutdown_bounty_lost<br>label: shutdown_bounty_lost<br>group: additional stats<br>degree: 0",
+    "value": 1,
+    "x": -436.2,
+    "y": 288.5,
+    "physics": true
+  },
+  {
+    "id": "total_damage_to_champion",
+    "label": "total_damage_to_champion",
+    "group": "raw_stats",
+    "title": "total_damage_to_champion<br>label: total_damage_to_champion<br>group: raw stats<br>degree: 1",
+    "value": 2,
+    "x": -470.2,
+    "y": -64.7,
+    "physics": true
+  },
+  {
+    "id": "team_kills",
+    "label": "team_kills",
+    "group": "team_context",
+    "title": "team_kills<br>label: team_kills<br>group: team context<br>degree: 2",
+    "value": 3,
+    "x": 643.0,
+    "y": -180.0,
+    "physics": true
+  },
+  {
+    "id": "team_deaths",
+    "label": "team_deaths",
+    "group": "team_context",
+    "title": "team_deaths<br>label: team_deaths<br>group: team context<br>degree: 1",
+    "value": 2,
+    "x": 596.7,
+    "y": -110.8,
+    "physics": true
+  },
+  {
+    "id": "team_assists",
+    "label": "team_assists",
+    "group": "team_context",
+    "title": "team_assists<br>label: team_assists<br>group: team context<br>degree: 2",
+    "value": 3,
+    "x": 492.6,
+    "y": -93.7,
+    "physics": true
+  },
+  {
+    "id": "team_cs",
+    "label": "team_cs",
+    "group": "team_context",
+    "title": "team_cs<br>label: team_cs<br>group: team context<br>degree: 2",
+    "value": 3,
+    "x": 409.2,
+    "y": -141.6,
+    "physics": true
+  },
+  {
+    "id": "team_golds",
+    "label": "team_golds",
+    "group": "team_context",
+    "title": "team_golds<br>label: team_golds<br>group: team context<br>degree: 4",
+    "value": 5,
+    "x": 409.2,
+    "y": -218.4,
+    "physics": true
+  },
+  {
+    "id": "team_vision_score",
+    "label": "team_vision_score",
+    "group": "team_context",
+    "title": "team_vision_score<br>label: team_vision_score<br>group: team context<br>degree: 1",
+    "value": 2,
+    "x": 492.6,
+    "y": -266.3,
+    "physics": true
+  },
+  {
+    "id": "team_total_damage_to_champion",
+    "label": "team_total_damage_to_champion",
+    "group": "team_context",
+    "title": "team_total_damage_to_champion<br>label: team_total_damage_to_champion<br>group: team context<br>degree: 1",
+    "value": 2,
+    "x": 596.7,
+    "y": -249.2,
+    "physics": true
+  },
+  {
+    "id": "kills_diff_vs_role_opp",
+    "label": "kills_diff",
+    "group": "opponent_diff",
+    "title": "kills_diff_vs_role_opp<br>label: kills_diff<br>group: opponent diff<br>degree: 1",
+    "value": 2,
+    "x": 478.3,
+    "y": 312.4,
+    "physics": true
+  },
+  {
+    "id": "deaths_diff_vs_role_opp",
+    "label": "deaths_diff",
+    "group": "opponent_diff",
+    "title": "deaths_diff_vs_role_opp<br>label: deaths_diff<br>group: opponent diff<br>degree: 0",
+    "value": 1,
+    "x": 410.8,
+    "y": 277.1,
+    "physics": true
+  },
+  {
+    "id": "assists_diff_vs_role_opp",
+    "label": "assists_diff",
+    "group": "opponent_diff",
+    "title": "assists_diff_vs_role_opp<br>label: assists_diff<br>group: opponent diff<br>degree: 1",
+    "value": 2,
+    "x": 385.0,
+    "y": 220.0,
+    "physics": true
+  },
+  {
+    "id": "cs_diff_vs_role_opp",
+    "label": "cs_diff",
+    "group": "opponent_diff",
+    "title": "cs_diff_vs_role_opp<br>label: cs_diff<br>group: opponent diff<br>degree: 1",
+    "value": 2,
+    "x": 410.8,
+    "y": 162.9,
+    "physics": true
+  },
+  {
+    "id": "golds_diff_vs_role_opp",
+    "label": "golds_diff",
+    "group": "opponent_diff",
+    "title": "golds_diff_vs_role_opp<br>label: golds_diff<br>group: opponent diff<br>degree: 3",
+    "value": 4,
+    "x": 478.3,
+    "y": 127.6,
+    "physics": true
+  },
+  {
+    "id": "vision_diff_vs_role_opp",
+    "label": "vision_diff",
+    "group": "opponent_diff",
+    "title": "vision_diff_vs_role_opp<br>label: vision_diff<br>group: opponent diff<br>degree: 0",
+    "value": 1,
+    "x": 561.7,
+    "y": 127.6,
+    "physics": true
+  },
+  {
+    "id": "damage_diff_vs_role_opp",
+    "label": "damage_diff",
+    "group": "opponent_diff",
+    "title": "damage_diff_vs_role_opp<br>label: damage_diff<br>group: opponent diff<br>degree: 0",
+    "value": 1,
+    "x": 629.2,
+    "y": 162.9,
+    "physics": true
+  }
+]);
+const allEdges = [
+  {
+    "id": 0,
+    "from": "cs",
+    "to": "golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "cs -> golds<br>directly increases<br>cs directly contributes to player gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 1,
+    "from": "kills",
+    "to": "golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "kills -> golds<br>directly increases<br>kills directly contributes to player gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 2,
+    "from": "assists",
+    "to": "golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "assists -> golds<br>directly increases<br>assists directly contributes to player gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 3,
+    "from": "shutdown_bounty_collected",
+    "to": "golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "shutdown_bounty_collected -> golds<br>directly increases<br>shutdown_bounty_collected directly contributes to player gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 4,
+    "from": "team_cs",
+    "to": "team_golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "team_cs -> team_golds<br>directly increases<br>team_cs directly contributes to team gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 5,
+    "from": "team_kills",
+    "to": "team_golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "team_kills -> team_golds<br>directly increases<br>team_kills directly contributes to team gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 6,
+    "from": "team_assists",
+    "to": "team_golds",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "team_assists -> team_golds<br>directly increases<br>team_assists directly contributes to team gold",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 7,
+    "from": "csd_at_15",
+    "to": "gd_at_15",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "csd_at_15 -> gd_at_15<br>directly increases<br>CS difference contributes to gold difference at 15 minutes",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 8,
+    "from": "cs_diff_vs_role_opp",
+    "to": "golds_diff_vs_role_opp",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "cs_diff -> golds_diff<br>directly increases<br>cs_diff_vs_role_opp contributes to same-role gold difference",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 9,
+    "from": "kills_diff_vs_role_opp",
+    "to": "golds_diff_vs_role_opp",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "kills_diff -> golds_diff<br>directly increases<br>kills_diff_vs_role_opp contributes to same-role gold difference",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 10,
+    "from": "assists_diff_vs_role_opp",
+    "to": "golds_diff_vs_role_opp",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "assists_diff -> golds_diff<br>directly increases<br>assists_diff_vs_role_opp contributes to same-role gold difference",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 11,
+    "from": "kills",
+    "to": "team_kills",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "kills -> team_kills<br>component of<br>kills is one component of team_kills",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 12,
+    "from": "deaths",
+    "to": "team_deaths",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "deaths -> team_deaths<br>component of<br>deaths is one component of team_deaths",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 13,
+    "from": "assists",
+    "to": "team_assists",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "assists -> team_assists<br>component of<br>assists is one component of team_assists",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 14,
+    "from": "cs",
+    "to": "team_cs",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "cs -> team_cs<br>component of<br>cs is one component of team_cs",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 15,
+    "from": "golds",
+    "to": "team_golds",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "golds -> team_golds<br>component of<br>golds is one component of team_golds",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 16,
+    "from": "vision_score",
+    "to": "team_vision_score",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "vision_score -> team_vision_score<br>component of<br>vision_score is one component of team_vision_score",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 17,
+    "from": "total_damage_to_champion",
+    "to": "team_total_damage_to_champion",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "total_damage_to_champion -> team_total_damage_to_champion<br>component of<br>total_damage_to_champion is one component of team_total_damage_to_champion",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 18,
+    "from": "total_heals_on_teammates",
+    "to": "total_heal",
+    "kind": "component_of",
+    "label": "component of",
+    "title": "total_heals_on_teammates -> total_heal<br>component of<br>total_heals_on_teammates is one component of total_heal",
+    "arrows": "",
+    "color": {
+      "color": "#4575b4"
+    },
+    "width": 2,
+    "dashes": [
+      4,
+      4
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 19,
+    "from": "deaths",
+    "to": "total_time_spent_dead",
+    "kind": "directly_increases",
+    "label": "directly increases",
+    "title": "deaths -> total_time_spent_dead<br>directly increases<br>More deaths directly create more death timers",
+    "arrows": "to",
+    "color": {
+      "color": "#d73027"
+    },
+    "width": 3,
+    "dashes": false,
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 20,
+    "from": "kills",
+    "to": "shutdown_bounty_collected",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> shutdown_bounty_collected<br>precondition<br>A kill is required for shutdown_bounty_collected, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 21,
+    "from": "kills",
+    "to": "solo_kills",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> solo_kills<br>precondition<br>A kill is required for solo_kills, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 22,
+    "from": "kills",
+    "to": "double_kills",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> double_kills<br>precondition<br>A kill is required for double_kills, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 23,
+    "from": "kills",
+    "to": "triple_kills",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> triple_kills<br>precondition<br>A kill is required for triple_kills, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 24,
+    "from": "kills",
+    "to": "quadra_kills",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> quadra_kills<br>precondition<br>A kill is required for quadra_kills, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  },
+  {
+    "id": 25,
+    "from": "kills",
+    "to": "penta_kills",
+    "kind": "precondition",
+    "label": "precondition",
+    "title": "kills -> penta_kills<br>precondition<br>A kill is required for penta_kills, but not every kill creates one",
+    "arrows": "to",
+    "color": {
+      "color": "#984ea3"
+    },
+    "width": 2.5,
+    "dashes": [
+      8,
+      5
+    ],
+    "font": {
+      "align": "middle",
+      "size": 10,
+      "strokeWidth": 3,
+      "strokeColor": "#ffffff"
+    }
+  }
+];
+const edges = new vis.DataSet(allEdges);
+const container = document.getElementById('graph');
+const data = { nodes, edges };
+const options = {
+  interaction: { hover: true, tooltipDelay: 80, navigationButtons: true, keyboard: true, dragNodes: true },
+  physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: { gravitationalConstant: -90, centralGravity: 0.008, springLength: 170, springConstant: 0.04, damping: 0.55, avoidOverlap: 0.65 },
+        stabilization: { iterations: 220 }
+      },
+  layout: { improvedLayout: false },
+  nodes: { borderWidth: 1.5, font: { size: 14, face: 'system-ui' }, scaling: { min: 15, max: 30 } },
+  edges: { smooth: { type: 'dynamic' } },
+  groups: {
+    "game_info": {
+        "shape": "dot",
+        "size": 24,
+        "color": {
+            "background": "#fdae61",
+            "border": "#d73027"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    },
+    "raw_stats": {
+        "shape": "dot",
+        "size": 21,
+        "color": {
+            "background": "#fee090",
+            "border": "#e6ab02"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    },
+    "additional_stats": {
+        "shape": "dot",
+        "size": 18,
+        "color": {
+            "background": "#f1eef6",
+            "border": "#8856a7"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    },
+    "multi_kills": {
+        "shape": "dot",
+        "size": 19,
+        "color": {
+            "background": "#fbb4ae",
+            "border": "#e41a1c"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    },
+    "team_context": {
+        "shape": "dot",
+        "size": 21,
+        "color": {
+            "background": "#abd9e9",
+            "border": "#2c7bb6"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    },
+    "opponent_diff": {
+        "shape": "dot",
+        "size": 21,
+        "color": {
+            "background": "#d9ef8b",
+            "border": "#66a61e"
+        },
+        "font": {
+            "color": "#111111"
+        }
+    }
+}
+};
+const network = new vis.Network(container, data, options);
+function applyEdgeFilters() {
+  const enabled = new Set(Array.from(document.querySelectorAll('.edge-toggle')).filter(cb => cb.checked).map(cb => cb.dataset.kind));
+  edges.update(allEdges.map(edge => ({ id: edge.id, hidden: !enabled.has(edge.kind) })));
+}
+</script>
+</body>
+</html>
