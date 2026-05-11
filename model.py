@@ -23,6 +23,7 @@ import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
+import matplotlib.pyplot as plt
 
 
 # ─────────────────────────────────────────────────────────────
@@ -299,8 +300,19 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--n-steps", type=int, default=1500)
     args = parser.parse_args()
 
-    CSV_PATH = "/Users/kerickwalker/Desktop/mbml/lol-skill/lck_s15_games_blocked.csv"
+    CSV_PATH = "data/lck_s15_games.csv"
 
     matches, n_players, idx_to_name, primary_role = load_data(CSV_PATH)
     losses = train(matches, n_players, n_steps=args.n_steps, lr=0.01)
+
+    plt.figure()
+    plt.plot(losses)
+    plt.xlabel("Step")
+    plt.ylabel("ELBO loss")
+    plt.title("SVI convergence")
+    plt.yscale("log")
+    plt.tight_layout()
+    plt.savefig("elbo.png")
+    print("Saved loss curve to elbo.png")
+
     print_rankings(n_players, idx_to_name, primary_role)
