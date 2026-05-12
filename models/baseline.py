@@ -206,7 +206,7 @@ def role_intercepts(gamma_mat: torch.Tensor, role_idx: torch.Tensor) -> torch.Te
     return gamma_mat[:, role_idx].permute(1, 2, 0)
 
 
-def model(batch, n_players, use_team_stats=False, use_diff_stats=False):
+def model(batch, n_players):
     mu_0 = 25.0
     sigma_0 = 25.0 / 3
     beta = 25.0 / 6
@@ -231,16 +231,6 @@ def model(batch, n_players, use_team_stats=False, use_diff_stats=False):
     )
     duration_effect = duration_effect_z * TAU_VEC.view(1, -1)
 
-    if use_team_stats:
-        team_output_effect_z = pyro.sample(
-            "team_output_effect_z",
-            dist.Normal(
-                torch.zeros(len(TEAM_CONTEXT_STATS), len(INDIVIDUAL_STATS)),
-                0.25 * torch.ones(len(TEAM_CONTEXT_STATS), len(INDIVIDUAL_STATS)),
-            ).to_event(2),
-        )
-        team_output_effect = team_output_effect_z * TAU_VEC.view(1, -1)
-
     with pyro.plate("matches", n_matches):
         p_a = pyro.sample("p_a", dist.Normal(skill_a, beta).to_event(1))
         p_b = pyro.sample("p_b", dist.Normal(skill_b, beta).to_event(1))
@@ -258,11 +248,6 @@ def model(batch, n_players, use_team_stats=False, use_diff_stats=False):
         duration_shift = batch["duration_context"] @ duration_effect
         mean_a = mean_a + duration_shift.unsqueeze(1)
         mean_b = mean_b + duration_shift.unsqueeze(1)
-        if use_team_stats:
-            team_output_shift_a = batch["team_output_context_a"] @ team_output_effect
-            team_output_shift_b = batch["team_output_context_b"] @ team_output_effect
-            mean_a = mean_a + team_output_shift_a.unsqueeze(1)
-            mean_b = mean_b + team_output_shift_b.unsqueeze(1)
 
         pyro.sample(
             "obs_a",
@@ -275,24 +260,8 @@ def model(batch, n_players, use_team_stats=False, use_diff_stats=False):
             obs=batch["stats_b"],
         )
 
-        if use_diff_stats:
-            diff_gamma_a = role_intercepts(DIFF_GAMMA_MAT, batch["team_a_role"])
-            diff_gamma_b = role_intercepts(DIFF_GAMMA_MAT, batch["team_b_role"])
-            diff_mean_a = p_a.unsqueeze(-1) * DIFF_ALPHA_VEC.view(1, 1, -1) + diff_gamma_a
-            diff_mean_b = p_b.unsqueeze(-1) * DIFF_ALPHA_VEC.view(1, 1, -1) + diff_gamma_b
-            pyro.sample(
-                "diff_obs_a",
-                dist.Normal(diff_mean_a, DIFF_TAU_VEC.view(1, 1, -1)).to_event(2),
-                obs=batch["diff_stats_a"],
-            )
-            pyro.sample(
-                "diff_obs_b",
-                dist.Normal(diff_mean_b, DIFF_TAU_VEC.view(1, 1, -1)).to_event(2),
-                obs=batch["diff_stats_b"],
-            )
 
-
-def guide(batch, n_players, use_team_stats=False, use_diff_stats=False):
+def guide(batch, n_players):
     mu_0 = 25.0
     sigma_0 = 25.0 / 3
     n_matches = batch["winner"].shape[0]
@@ -316,21 +285,6 @@ def guide(batch, n_players, use_team_stats=False, use_diff_stats=False):
     )
     pyro.sample("duration_effect_z", dist.Normal(duration_loc, duration_scale).to_event(2))
 
-    if use_team_stats:
-        team_output_loc = pyro.param(
-            "team_output_effect_z_loc",
-            torch.zeros(len(TEAM_CONTEXT_STATS), len(INDIVIDUAL_STATS)),
-        )
-        team_output_scale = pyro.param(
-            "team_output_effect_z_scale",
-            0.1 * torch.ones(len(TEAM_CONTEXT_STATS), len(INDIVIDUAL_STATS)),
-            constraint=dist.constraints.positive,
-        )
-        pyro.sample(
-            "team_output_effect_z",
-            dist.Normal(team_output_loc, team_output_scale).to_event(2),
-        )
-
     pa_loc = pyro.param("pa_loc", 25.0 * torch.ones(n_matches, 5))
     pa_scale = pyro.param(
         "pa_scale",
@@ -349,13 +303,13 @@ def guide(batch, n_players, use_team_stats=False, use_diff_stats=False):
         pyro.sample("p_b", dist.Normal(pb_loc, pb_scale).to_event(1))
 
 
-def train(batch, n_players, n_steps=1500, lr=0.01, use_team_stats=False, use_diff_stats=False):
+def train(batch, n_players, n_steps=1500, lr=0.01):
     pyro.clear_param_store()
     svi = SVI(model, guide, Adam({"lr": lr}), loss=Trace_ELBO())
     losses = []
     with trange(n_steps, desc="Training", unit="step") as bar:
         for _ in bar:
-            loss = svi.step(batch, n_players, use_team_stats, use_diff_stats)
+            loss = svi.step(batch, n_players)
             losses.append(loss)
             bar.set_postfix(elbo=f"{loss:,.0f}")
     return losses

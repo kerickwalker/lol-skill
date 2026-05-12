@@ -3,17 +3,16 @@
 Training runner for LCK skill models.
 
 Examples:
-    python train.py                              # train fast model, 1500 steps
+    python train.py                                    # train baseline model, 1500 steps
+    python train.py --model baseline_team_diff
     python train.py --model corr --n-steps 3000
     python train.py --model relationship
-    python train.py --output my_run             # saves params/my_run.pt, elbo/my_run.png
-    python train.py --load params/fast_20240101_120000.pt  # load and print rankings
-    python train.py --use-diff-stats            # fast model with diff stats
+    python train.py --output my_run                    # saves params/my_run.pt, elbo/my_run.png
+    python train.py --load params/baseline_20240101_120000.pt  # load and print rankings
 """
 
 import argparse
 import importlib
-import inspect
 import time
 from datetime import datetime
 from pathlib import Path
@@ -28,8 +27,8 @@ def _load_params(path):
     state = torch.load(path, map_location="cpu", weights_only=False)
     pyro.get_param_store().set_state(state)
 
-MODELS = ["fast", "corr", "relationship"]
-DEFAULT_MODEL = "fast"
+MODELS = ["baseline", "baseline_team_diff", "corr", "relationship"]
+DEFAULT_MODEL = "baseline"
 CSV_PATH = "data/lck_s15_games_MODEL-READY.csv"
 
 
@@ -68,17 +67,6 @@ def main():
         metavar="FILE",
         help="Load saved params from FILE and print rankings (skips training)",
     )
-    # fast-model flags
-    parser.add_argument(
-        "--use-team-stats",
-        action="store_true",
-        help="(fast model) Use team-level output stats as context",
-    )
-    parser.add_argument(
-        "--use-diff-stats",
-        action="store_true",
-        help="(fast model) Use same-role opponent difference stats",
-    )
     args = parser.parse_args()
 
     module = importlib.import_module(f"models.{args.model}")
@@ -95,16 +83,8 @@ def main():
         params_path.parent.mkdir(exist_ok=True)
         elbo_path.parent.mkdir(exist_ok=True)
 
-        # Pass model-specific kwargs only if the train function accepts them
-        train_sig = inspect.signature(module.train)
-        extra = {}
-        if "use_team_stats" in train_sig.parameters:
-            extra["use_team_stats"] = args.use_team_stats
-        if "use_diff_stats" in train_sig.parameters:
-            extra["use_diff_stats"] = args.use_diff_stats
-
         start = time.perf_counter()
-        losses = module.train(batch, n_players, n_steps=args.n_steps, lr=args.lr, **extra)
+        losses = module.train(batch, n_players, n_steps=args.n_steps, lr=args.lr)
         elapsed = time.perf_counter() - start
 
         pyro.get_param_store().save(str(params_path))

@@ -25,7 +25,7 @@ from pyro.optim import Adam
 from tqdm import trange
 
 from models.config import N_ROLES, ROLE_MAP, STAT_CONFIG as BASE_STAT_CONFIG
-from models.fast import print_rankings
+from models.baseline import print_rankings
 
 STAT_CONFIG = {
     **BASE_STAT_CONFIG,
