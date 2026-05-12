@@ -290,6 +290,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pyro-ppl" },
     { name = "torch" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -299,6 +300,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.2" },
     { name = "pyro-ppl", specifier = ">=1.9.1" },
     { name = "torch", specifier = ">=2.11.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
 ]
 
 [[package]]

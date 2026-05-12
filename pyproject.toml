@@ -9,4 +9,5 @@ dependencies = [
     "pandas>=3.0.2",
     "pyro-ppl>=1.9.1",
     "torch>=2.11.0",
+    "tqdm>=4.67.3",
 ]

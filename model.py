@@ -24,6 +24,7 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 import matplotlib.pyplot as plt
+from tqdm import trange
 
 
 # ─────────────────────────────────────────────────────────────
@@ -236,11 +237,11 @@ def train(matches, n_players, n_steps=1500, lr=0.01):
     pyro.clear_param_store()
     svi = SVI(model, guide, Adam({"lr": lr}), loss=Trace_ELBO())
     losses = []
-    for step in range(n_steps):
-        loss = svi.step(matches, n_players)
-        losses.append(loss)
-        if step % 100 == 0:
-            print(f"  step {step:5d}   ELBO loss = {loss:,.0f}")
+    with trange(n_steps, desc="Training", unit="step") as bar:
+        for step in bar:
+            loss = svi.step(matches, n_players)
+            losses.append(loss)
+            bar.set_postfix(elbo=f"{loss:,.0f}")
     return losses
 
 
