@@ -1,3 +1,7 @@
 __pycache__/
 data/LCK_S15_games/
 feature-relationships/detailed-legacy/
+params.pt
+elbo.png
+params_fast.pt
+elbo_fast.png
