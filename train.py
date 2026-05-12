@@ -3,12 +3,12 @@
 Training runner for LCK skill models.
 
 Examples:
-    python run.py                              # train fast model, 1500 steps
-    python run.py --model corr --n-steps 3000
-    python run.py --model relationship
-    python run.py --output my_run             # saves params/my_run.pt, elbo/my_run.png
-    python run.py --load params/fast_20240101_120000.pt  # load and print rankings
-    python run.py --use-diff-stats            # fast model with diff stats
+    python train.py                              # train fast model, 1500 steps
+    python train.py --model corr --n-steps 3000
+    python train.py --model relationship
+    python train.py --output my_run             # saves params/my_run.pt, elbo/my_run.png
+    python train.py --load params/fast_20240101_120000.pt  # load and print rankings
+    python train.py --use-diff-stats            # fast model with diff stats
 """
 
 import argparse
@@ -20,6 +20,13 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pyro
+import torch
+
+
+def _load_params(path):
+    """Load a Pyro param store from disk. Works around PyTorch 2.6+ weights_only default."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    pyro.get_param_store().set_state(state)
 
 MODELS = ["fast", "corr", "relationship"]
 DEFAULT_MODEL = "fast"
@@ -79,7 +86,7 @@ def main():
 
     if args.load:
         pyro.clear_param_store()
-        pyro.get_param_store().load(args.load)
+        _load_params(args.load)
         print(f"Loaded params from {args.load}")
     else:
         output_name = args.output or f"{args.model}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
