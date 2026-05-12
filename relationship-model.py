@@ -48,65 +48,52 @@ INDIVIDUAL_STATS = [
     "damage_dealt_to_buildings", "total_heal", "total_heals_on_teammates",
     "damage_self_mitigated", "total_damage_shielded_on_teammates",
     "total_time_cc_dealt", "total_damage_taken", "total_time_spent_dead",
-    "shutdown_bounty_collected", "shutdown_bounty_lost", "total_damage_to_champion",
+    "shutdown_bounty_collected", "shutdown_bounty_lost", "total_damage_to_champion", "golds_diff_vs_role_opp", 
+    "damage_diff_vs_role_opp"
 ]
 
 
 def load_data(csv_path: str):
-    """
-    Load the LCK MODEL-READY CSV and return (matches, n_players, idx_to_name).
-
-    matches:     list of dicts ready for the Pyro model
-    n_players:   int, total distinct players
-    idx_to_name: dict mapping contiguous player index -> player name
-    """
-    df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    # Using sep=None to auto-detect ; or , 
+    df = pd.read_csv(csv_path, encoding="utf-8-sig", sep=None, engine='python')
+    
+    # Optional: ensure no weird spaces in column names
+    df.columns = df.columns.str.strip()
 
     df["role_idx"] = df["role"].map(ROLE_MAP)
 
-    # --- re-index player IDs to 0..N-1 ---
     unique_pids = sorted(df["player_id"].unique())
     pid_to_idx = {pid: i for i, pid in enumerate(unique_pids)}
     df["pid_idx"] = df["player_id"].map(pid_to_idx)
     n_players = len(unique_pids)
 
-    idx_to_name = (
-        df[["pid_idx", "player_name"]]
-        .drop_duplicates()
-        .set_index("pid_idx")["player_name"]
-        .to_dict()
-    )
+    idx_to_name = df[["pid_idx", "player_name"]].drop_duplicates().set_index("pid_idx")["player_name"].to_dict()
+    primary_role = df.groupby("pid_idx")["role_idx"].agg(lambda x: x.mode().iloc[0]).to_dict()
 
-    # --- build a role lookup: pid_idx -> primary role_idx ---
-    primary_role = (
-        df.groupby("pid_idx")["role_idx"]
-        .agg(lambda x: x.mode().iloc[0])
-        .to_dict()
-    )
-
-    # --- build match dicts ---
     matches = []
     for gid, group in df.groupby("game_block_id"):
         winners = group[group["Result"] == "Victory"]
         losers = group[group["Result"] == "Defeat"]
-        if len(winners) != 5 or len(losers) != 5:
-            continue
+        if len(winners) != 5 or len(losers) != 5: continue
 
         match = {
-            "team_a": list(zip(winners["pid_idx"].tolist(),
-                               winners["role_idx"].astype(int).tolist())),
-            "team_b": list(zip(losers["pid_idx"].tolist(),
-                               losers["role_idx"].astype(int).tolist())),
-            "winner": 1,  # team_a = winners by construction
+            "team_a": list(zip(winners["pid_idx"].tolist(), winners["role_idx"].astype(int).tolist())),
+            "team_b": list(zip(losers["pid_idx"].tolist(), losers["role_idx"].astype(int).tolist())),
+            "winner": 1,
+            # We add the _a and _b suffix here to distinguish teams
+            "team_kills_a": torch.tensor(winners["team_kills"].iloc[0], dtype=torch.float32),
+            "team_kills_b": torch.tensor(losers["team_kills"].iloc[0], dtype=torch.float32),
+            "team_golds_a": torch.tensor(winners["team_golds"].iloc[0], dtype=torch.float32),
+            "team_golds_b": torch.tensor(losers["team_golds"].iloc[0], dtype=torch.float32),
+            "team_cs_a": torch.tensor(winners["team_cs"].iloc[0], dtype=torch.float32),
+            "team_cs_b": torch.tensor(losers["team_cs"].iloc[0], dtype=torch.float32),
         }
         for stat in INDIVIDUAL_STATS:
             match[f"{stat}_a"] = torch.tensor(winners[stat].fillna(0).values, dtype=torch.float32)
             match[f"{stat}_b"] = torch.tensor(losers[stat].fillna(0).values, dtype=torch.float32)
         matches.append(match)
 
-    print(f"Loaded {len(matches)} matches, {n_players} players")
     return matches, n_players, idx_to_name, primary_role
-
 
 # ─────────────────────────────────────────────────────────────
 # Pyro model and guide
@@ -118,6 +105,16 @@ def load_data(csv_path: str):
 # alpha scaled so a 10-unit performance swing causes ~0.1-0.3 std change in the stat.
 # tau set to approximately the observed per-role std.
 STAT_CONFIG = {
+    "golds_diff_vs_role_opp": {
+        "alpha": 50.0, # Sensitivity of gold lead to performance gap
+        "gamma": torch.zeros(5), # Diffs are centered at 0
+        "tau": 1500.0,
+    },
+    "damage_diff_vs_role_opp": {
+        "alpha": 150.0,
+        "gamma": torch.zeros(5),
+        "tau": 5000.0,
+    },
     "level": {
         "alpha": 0.02,
         "gamma": torch.tensor([15.9, 14.7, 16.2, 15.3, 11.9]),
@@ -298,24 +295,128 @@ def model(matches, n_players):
 
         # Layer 5: per-player stat observations (27 raw stats)
         roles_a = torch.tensor([r for _, r in team_a])
+
         roles_b = torch.tensor([r for _, r in team_b])
 
-        for stat_name, cfg in STAT_CONFIG.items():
-            mean_a = cfg["alpha"] * p_a + cfg["gamma"][roles_a]
-            mean_b = cfg["alpha"] * p_b + cfg["gamma"][roles_b]
-
-            pyro.sample(
-                f"{stat_name}_a_{m_idx}",
-                dist.Normal(mean_a, cfg["tau"]).to_event(1),
-                obs=match[f"{stat_name}_a"],
-            )
-            pyro.sample(
-                f"{stat_name}_b_{m_idx}",
-                dist.Normal(mean_b, cfg["tau"]).to_event(1),
-                obs=match[f"{stat_name}_b"],
-            )
 
 
+        # A helper to sample individual stats and team components
+
+        def sample_structured_stats(perf, roles, match_prefix, m_idx, match, opp_perf=None, opp_roles=None):
+
+            # 1. Independent "Source" Stats
+
+            v_cs = pyro.sample(f"cs_{match_prefix}_{m_idx}",
+
+                dist.Normal(STAT_CONFIG["cs"]["alpha"] * perf + STAT_CONFIG["cs"]["gamma"][roles], STAT_CONFIG["cs"]["tau"]).to_event(1),
+
+                obs=match[f"cs_{match_prefix}"])
+
+           
+
+            v_kills = pyro.sample(f"kills_{match_prefix}_{m_idx}",
+
+                dist.Normal(STAT_CONFIG["kills"]["alpha"] * perf + STAT_CONFIG["kills"]["gamma"][roles], STAT_CONFIG["kills"]["tau"]).to_event(1),
+
+                obs=match[f"kills_{match_prefix}"])
+
+           
+
+            v_deaths = pyro.sample(f"deaths_{match_prefix}_{m_idx}",
+
+                dist.Normal(STAT_CONFIG["deaths"]["alpha"] * perf + STAT_CONFIG["deaths"]["gamma"][roles], STAT_CONFIG["deaths"]["tau"]).to_event(1),
+
+                obs=match[f"deaths_{match_prefix}"])
+
+
+
+            v_assists = pyro.sample(f"assists_{match_prefix}_{m_idx}",
+
+                dist.Normal(STAT_CONFIG["assists"]["alpha"] * perf + STAT_CONFIG["assists"]["gamma"][roles], STAT_CONFIG["assists"]["tau"]).to_event(1),
+
+                obs=match[f"assists_{match_prefix}"])
+
+
+
+            v_shutdown = pyro.sample(f"shutdown_bounty_collected_{match_prefix}_{m_idx}",
+
+                dist.Normal(STAT_CONFIG["shutdown_bounty_collected"]["alpha"] * perf + STAT_CONFIG["shutdown_bounty_collected"]["gamma"][roles], STAT_CONFIG["shutdown_bounty_collected"]["tau"]).to_event(1),
+
+                obs=match[f"shutdown_bounty_collected_{match_prefix}"])
+            
+            v_dmg = pyro.sample(f"total_damage_to_champion_{match_prefix}_{m_idx}",
+                dist.Normal(STAT_CONFIG["total_damage_to_champion"]["alpha"] * perf + STAT_CONFIG["total_damage_to_champion"]["gamma"][roles], STAT_CONFIG["total_damage_to_champion"]["tau"]).to_event(1),
+                obs=match[f"total_damage_to_champion_{match_prefix}"])
+
+            # 2. "Directly Increases" (Causal Edges)
+
+            # Golds is influenced by performance + CS + Kills + Assists + Shutdowns
+
+            gold_mean = (STAT_CONFIG["golds"]["alpha"] * perf + STAT_CONFIG["golds"]["gamma"][roles] +
+
+                         (19.0 * v_cs) + (300.0 * v_kills) + (150.0 * v_assists) + (1.0 * v_shutdown))
+
+           
+
+            v_golds = pyro.sample(f"golds_{match_prefix}_{m_idx}",
+
+                dist.Normal(gold_mean, STAT_CONFIG["golds"]["tau"]).to_event(1),
+
+                obs=match[f"golds_{match_prefix}"])
+
+
+
+            # Deaths directly increases time spent dead
+
+            dead_timer_mean = (STAT_CONFIG["total_time_spent_dead"]["alpha"] * perf +
+
+                               STAT_CONFIG["total_time_spent_dead"]["gamma"][roles] + (35.0 * v_deaths))
+
+           
+
+            pyro.sample(f"total_time_spent_dead_{match_prefix}_{m_idx}",
+
+                dist.Normal(dead_timer_mean, STAT_CONFIG["total_time_spent_dead"]["tau"]).to_event(1),
+
+                obs=match[f"total_time_spent_dead_{match_prefix}"])
+ 
+            # --- 3. Opponent Difference Stats (Opponent Diff) ---
+            # Note: These require the opponent's stats/performance to be passed in
+            if opp_perf is not None:
+            # Golds Diff: Your gold minus your role-opponent's gold
+            # damage_diff: Your damage minus role-opponent's damage
+            # We model these as observed differences derived from performance delta
+                pyro.sample(f"golds_diff_vs_role_opp_{match_prefix}_{m_idx}",
+                    dist.Normal(STAT_CONFIG["golds_diff_vs_role_opp"]["alpha"] * (perf - opp_perf), STAT_CONFIG["golds_diff_vs_role_opp"]["tau"]).to_event(1),
+                    obs=match[f"golds_diff_vs_role_opp_{match_prefix}"])
+
+                pyro.sample(f"damage_diff_vs_role_opp_{match_prefix}_{m_idx}",
+                    dist.Normal(STAT_CONFIG["damage_diff_vs_role_opp"]["alpha"] * (perf - opp_perf), STAT_CONFIG["damage_diff_vs_role_opp"]["tau"]).to_event(1),
+                    obs=match[f"damage_diff_vs_role_opp_{match_prefix}"])
+
+            # 4. "Component Of" (Team Aggregates)
+
+            # These link individual player actions to the team's total success
+
+            pyro.sample(f"team_kills_{match_prefix}_{m_idx}", 
+                        dist.Normal(v_kills.sum(), 1.0), 
+                        obs=match[f"team_kills_{match_prefix}"])
+            
+            pyro.sample(f"team_golds_{match_prefix}_{m_idx}", 
+                        dist.Normal(v_golds.sum(), 10.0), 
+                        obs=match[f"team_golds_{match_prefix}"])
+            
+            pyro.sample(f"team_cs_{match_prefix}_{m_idx}", 
+                        dist.Normal(v_cs.sum(), 1.0), 
+                        obs=match[f"team_cs_{match_prefix}"])
+
+
+        # Execute for both teams
+
+        sample_structured_stats(p_a, roles_a, "a", m_idx, match, opp_perf=p_b, opp_roles=roles_b)
+
+        sample_structured_stats(p_b, roles_b, "b", m_idx, match, opp_perf=p_a, opp_roles=roles_a)
+        
 def guide(matches, n_players):
     mu_0 = 25.0
     sigma_0 = 25.0 / 3
