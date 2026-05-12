@@ -1,7 +1,3 @@
-import argparse
-import time
-
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyro
@@ -11,7 +7,7 @@ from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 from tqdm import trange
 
-from model import INDIVIDUAL_STATS, N_ROLES, ROLE_MAP, ROLES, STAT_CONFIG
+from models.config import INDIVIDUAL_STATS, N_ROLES, ROLE_MAP, ROLES, STAT_CONFIG
 
 DURATION_CONTEXT_STATS = ["duration_minutes"]
 TEAM_CONTEXT_STATS = [
@@ -53,15 +49,6 @@ def parse_duration_minutes(value) -> float:
 
 
 def load_data(csv_path: str):
-    """
-    Load the LCK MODEL-READY CSV into batched tensors.
-
-    Returns:
-        batch: dict of tensors with match-major shapes
-        n_players: total distinct players
-        idx_to_name: pid_idx -> player name
-        primary_role: pid_idx -> main role index
-    """
     df = pd.read_csv(csv_path, encoding="utf-8-sig")
     df["role_idx"] = df["role"].map(ROLE_MAP)
 
@@ -235,8 +222,6 @@ def model(batch, n_players, use_team_stats=False, use_diff_stats=False):
     skill_a = s[batch["team_a_pid"], batch["team_a_role"]]
     skill_b = s[batch["team_b_pid"], batch["team_b_role"]]
 
-    # Context effects are in units of each stat's observation noise. This keeps
-    # the prior scale comparable for kills, gold, damage, and the other stats.
     duration_effect_z = pyro.sample(
         "duration_effect_z",
         dist.Normal(
@@ -376,16 +361,9 @@ def train(batch, n_players, n_steps=1500, lr=0.01, use_team_stats=False, use_dif
     return losses
 
 
-def output_paths(output_suffix: str):
-    if not output_suffix:
-        return "params_fast.pt", "elbo_fast.png"
-    clean_suffix = output_suffix.strip().lstrip("-_")
-    return f"params-{clean_suffix}.pt", f"elbo-{clean_suffix}.png"
-
-
-def print_rankings_fast(n_players, idx_to_name, primary_role):
+def print_rankings(n_players, idx_to_name, primary_role):
     params = pyro.get_param_store()
-    mu = params["s_loc"].detach().cpu().numpy()          # (n_players, 5)
+    mu = params["s_loc"].detach().cpu().numpy()
     sigma = params["s_scale"].detach().cpu().numpy()
     conservative = mu - 3 * sigma
 
@@ -428,62 +406,3 @@ def print_rankings_fast(n_players, idx_to_name, primary_role):
             f"  {rank:2d}. {name:12s} ({role:3s})  "
             f"mu={m:6.2f}  sigma={s:5.2f}  rating={c:6.2f}"
         )
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--n-steps", type=int, default=1500)
-    parser.add_argument("--load", metavar="FILE", help="Load saved params and print rankings without retraining")
-    parser.add_argument("--csv-path", default="data/lck_s15_games_MODEL-READY.csv")
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="",
-        help="Optional output suffix, e.g. '-o fast' writes params-fast.pt and elbo-fast.png",
-    )
-    parser.add_argument(
-        "--use-team-stats",
-        action="store_true",
-        help="Use team-level output stats as optional context in addition to duration",
-    )
-    parser.add_argument(
-        "--use-diff-stats",
-        action="store_true",
-        help="Use same-role opponent difference stats as optional performance observations",
-    )
-    args = parser.parse_args()
-
-    batch, n_players, idx_to_name, primary_role = load_data(args.csv_path)
-
-    if args.load:
-        pyro.clear_param_store()
-        pyro.get_param_store().load(args.load)
-        print(f"Loaded params from {args.load}")
-    else:
-        start = time.perf_counter()
-        losses = train(
-            batch,
-            n_players,
-            n_steps=args.n_steps,
-            lr=0.01,
-            use_team_stats=args.use_team_stats,
-            use_diff_stats=args.use_diff_stats,
-        )
-        elapsed = time.perf_counter() - start
-        params_path, elbo_path = output_paths(args.output)
-
-        pyro.get_param_store().save(params_path)
-        print(f"Saved params to {params_path}")
-
-        plt.figure()
-        plt.plot(losses)
-        plt.xlabel("Step")
-        plt.ylabel("ELBO loss")
-        plt.title("SVI convergence (fast)")
-        plt.yscale("log")
-        plt.tight_layout()
-        plt.savefig(elbo_path)
-        print(f"Saved loss curve to {elbo_path}")
-        print(f"Training wall time: {elapsed:.2f}s")
-
-    print_rankings_fast(n_players, idx_to_name, primary_role)
