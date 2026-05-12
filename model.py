@@ -299,21 +299,31 @@ def print_rankings(n_players, idx_to_name, primary_role):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--n-steps", type=int, default=1500)
+    parser.add_argument("--load", metavar="FILE", help="Load saved params and print rankings without retraining")
     args = parser.parse_args()
 
     CSV_PATH = "data/lck_s15_games.csv"
 
     matches, n_players, idx_to_name, primary_role = load_data(CSV_PATH)
-    losses = train(matches, n_players, n_steps=args.n_steps, lr=0.01)
 
-    plt.figure()
-    plt.plot(losses)
-    plt.xlabel("Step")
-    plt.ylabel("ELBO loss")
-    plt.title("SVI convergence")
-    plt.yscale("log")
-    plt.tight_layout()
-    plt.savefig("elbo.png")
-    print("Saved loss curve to elbo.png")
+    if args.load:
+        pyro.clear_param_store()
+        pyro.get_param_store().load(args.load)
+        print(f"Loaded params from {args.load}")
+    else:
+        losses = train(matches, n_players, n_steps=args.n_steps, lr=0.01)
+
+        pyro.get_param_store().save("params.pt")
+        print("Saved params to params.pt")
+
+        plt.figure()
+        plt.plot(losses)
+        plt.xlabel("Step")
+        plt.ylabel("ELBO loss")
+        plt.title("SVI convergence")
+        plt.yscale("log")
+        plt.tight_layout()
+        plt.savefig("elbo.png")
+        print("Saved loss curve to elbo.png")
 
     print_rankings(n_players, idx_to_name, primary_role)
