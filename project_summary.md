@@ -212,7 +212,124 @@ This matters conceptually:
 
 The current `data/lck_s15_games_MODEL-READY.csv` includes those team-total columns explicitly for that reason.
 
-### 3. Whether And How To Normalize Inputs
+### 3. Current Fast Model Context Interpretation
+
+The current `model-fast.py` splits non-player context into two parts:
+
+- `Duration` is always used as game-length context
+- `team_*` columns are optional team-output context, disabled by default and enabled with `--use-team-stats`
+
+Both are contextual covariates in the observation layer, not individual player stats.
+
+In model-based terms, the generative direction is:
+
+```text
+player-role skill -> game performance -> observed player stats
+game length ---------------------------> observed player stats
+team output ---------------------------> observed player stats
+```
+
+This can feel backwards at first, because intuitively we often say that observed stats "feed into" performance. In the generative model, however, latent performance generates observed stats. During inference, the information flows the other way: observed stats update the posterior belief about latent game performance and player skill.
+
+The current observation model can be summarized as:
+
+```text
+observed_stat =
+    player performance contribution
+  + role baseline
+  + game-length context contribution
+  + optional team-output context contribution
+  + noise
+```
+
+or more formally:
+
+```text
+x_i,g,k ~ Normal(
+    alpha_k * p_i,g
+  + gamma_role(i),k
+  + beta_duration[:,k] * duration_context(g)
+  + beta_team[:,k] * team_output_context(team,g)
+  , tau_k
+)
+```
+
+where:
+
+- `p_i,g` is the latent performance of player `i` in game `g`
+- `alpha_k` controls how strongly latent performance affects stat `k`
+- `gamma_role(i),k` is the expected role-specific baseline for stat `k`
+- `duration_context(g)` is standardized game duration
+- `team_output_context(team,g)` contains standardized team-level output for that team in that game
+- `beta_duration` and `beta_team` are learned, and control how much each context variable shifts each observed stat
+- `tau_k` is observation noise for stat `k`
+
+Why `gamma_role` is needed:
+
+- roles have very different stat baselines
+- without role baselines, SUPPORT players would be punished for low CS or damage, and ADC/MID players would be rewarded for role-typical farm and damage
+- `gamma_role` lets the model compare a player against what is normal for their role
+
+Why the context effects are learned:
+
+- raw counting stats are affected by measurement conditions such as game duration and team tempo
+- a 45-minute game naturally creates more opportunities for damage, kills, deaths, healing, shielding, and gold than a 25-minute game
+- high-output team games also inflate many individual raw stats
+- learned context effects let the model explain those stat shifts without forcing latent player performance to absorb them
+
+Example:
+
+```text
+Player A: 28k damage in a 45-minute game
+Player B: 24k damage in a 25-minute game
+```
+
+Without context, Player A may look better from raw damage alone. With duration context, the model can learn that Player A's damage was partly inflated by game length, so Player B may still have the stronger inferred performance.
+
+This means the current context implementation is mostly a measurement-context correction:
+
+- `Duration` explains game length and exposure time
+- `team_*` explains broader team-output environment when enabled
+- they do not directly increase or decrease a player's underlying skill
+- they help prevent the model from mistaking long/high-action games for better individual performance
+
+The same-role opponent difference columns can also be used as optional observed performance evidence with `--use-diff-stats`.
+
+Those columns are:
+
+- `kills_diff_vs_role_opp`
+- `deaths_diff_vs_role_opp`
+- `assists_diff_vs_role_opp`
+- `cs_diff_vs_role_opp`
+- `golds_diff_vs_role_opp`
+- `vision_diff_vs_role_opp`
+- `damage_diff_vs_role_opp`
+
+When enabled, these are modeled like additional player-level observations of latent game performance. They are not part of the default run yet because they are derived comparison variables and may duplicate information already present in the raw individual stats.
+
+There is an important alternative model structure that may better capture teammate influence:
+
+```text
+player skill + teammate/team influence -> latent game performance -> observed stats
+```
+
+That would make team or teammate context affect the latent performance variable itself. This has a different interpretation: it says context changes how well the player actually performs in the game, rather than only changing how raw stats should be interpreted.
+
+Likely future direction:
+
+- use `Duration` and broad team tempo variables as observation-level measurement context
+- use explicit teammate/player interaction terms as performance-level influence context
+- keep those two ideas separate, because they answer different modeling questions
+
+Useful fast-model commands:
+
+```bash
+python model-fast.py -n 1000
+python model-fast.py -n 1000 --use-team-stats
+python model-fast.py -n 1000 --use-diff-stats
+```
+
+### 4. Whether And How To Normalize Inputs
 
 There are now three distinct options available in the project:
 
