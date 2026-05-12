@@ -13,6 +13,26 @@ from tqdm import trange
 
 from model import INDIVIDUAL_STATS, N_ROLES, ROLE_MAP, ROLES, STAT_CONFIG
 
+TEAM_CONTEXT_STATS = [
+    "team_kills",
+    "team_deaths",
+    "team_assists",
+    "team_cs",
+    "team_golds",
+    "team_vision_score",
+    "team_total_damage_to_champion",
+]
+CONTEXT_STATS = ["duration_minutes", *TEAM_CONTEXT_STATS]
+
+
+def parse_duration_minutes(value) -> float:
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, str) and ":" in value:
+        minutes, seconds = value.split(":", maxsplit=1)
+        return float(minutes) + float(seconds) / 60.0
+    return float(value)
+
 
 def load_data(csv_path: str):
     """
@@ -49,6 +69,8 @@ def load_data(csv_path: str):
     team_b_pid = []
     team_b_role = []
     winners = []
+    team_context_a = []
+    team_context_b = []
     stats_a_by_name = {stat: [] for stat in INDIVIDUAL_STATS}
     stats_b_by_name = {stat: [] for stat in INDIVIDUAL_STATS}
 
@@ -63,7 +85,27 @@ def load_data(csv_path: str):
         team_b_pid.append(losers_df["pid_idx"].to_numpy(dtype=np.int64))
         team_b_role.append(losers_df["role_idx"].to_numpy(dtype=np.int64))
         winners.append(1.0)
-
+        duration_minutes = parse_duration_minutes(winners_df.iloc[0]["Duration"])
+        team_context_a.append(
+            np.concatenate(
+                [
+                    np.array([duration_minutes], dtype=np.float32),
+                    pd.to_numeric(winners_df.iloc[0][TEAM_CONTEXT_STATS], errors="coerce")
+                    .fillna(0)
+                    .to_numpy(dtype=np.float32),
+                ]
+            )
+        )
+        team_context_b.append(
+            np.concatenate(
+                [
+                    np.array([duration_minutes], dtype=np.float32),
+                    pd.to_numeric(losers_df.iloc[0][TEAM_CONTEXT_STATS], errors="coerce")
+                    .fillna(0)
+                    .to_numpy(dtype=np.float32),
+                ]
+            )
+        )
         for stat in INDIVIDUAL_STATS:
             stats_a_by_name[stat].append(
                 pd.to_numeric(winners_df[stat], errors="coerce").fillna(0).to_numpy(dtype=np.float32)
@@ -80,6 +122,12 @@ def load_data(csv_path: str):
         [np.stack(stats_b_by_name[stat], axis=0) for stat in INDIVIDUAL_STATS],
         axis=-1,
     )
+    team_context_a = np.stack(team_context_a, axis=0)
+    team_context_b = np.stack(team_context_b, axis=0)
+    team_context_all = np.concatenate([team_context_a, team_context_b], axis=0)
+    context_mean = team_context_all.mean(axis=0)
+    context_std = team_context_all.std(axis=0)
+    context_std = np.where(context_std == 0, 1.0, context_std)
 
     batch = {
         "team_a_pid": torch.tensor(np.stack(team_a_pid, axis=0), dtype=torch.long),
@@ -89,6 +137,10 @@ def load_data(csv_path: str):
         "winner": torch.tensor(winners, dtype=torch.float32),
         "stats_a": torch.tensor(stats_a, dtype=torch.float32),
         "stats_b": torch.tensor(stats_b, dtype=torch.float32),
+        "team_context_a": torch.tensor((team_context_a - context_mean) / context_std, dtype=torch.float32),
+        "team_context_b": torch.tensor((team_context_b - context_mean) / context_std, dtype=torch.float32),
+        "team_context_mean": torch.tensor(context_mean, dtype=torch.float32),
+        "team_context_std": torch.tensor(context_std, dtype=torch.float32),
     }
 
     print(f"Loaded {batch['winner'].shape[0]} matches, {n_players} players")
@@ -126,6 +178,17 @@ def model(batch, n_players):
     skill_a = s[batch["team_a_pid"], batch["team_a_role"]]
     skill_b = s[batch["team_b_pid"], batch["team_b_role"]]
 
+    # Effects are in units of each stat's observation noise. This keeps the
+    # prior scale comparable for kills, gold, damage, and the other stats.
+    team_context_effect_z = pyro.sample(
+        "team_context_effect_z",
+        dist.Normal(
+            torch.zeros(len(CONTEXT_STATS), len(INDIVIDUAL_STATS)),
+            0.25 * torch.ones(len(CONTEXT_STATS), len(INDIVIDUAL_STATS)),
+        ).to_event(2),
+    )
+    team_context_effect = team_context_effect_z * TAU_VEC.view(1, -1)
+
     with pyro.plate("matches", n_matches):
         p_a = pyro.sample("p_a", dist.Normal(skill_a, beta).to_event(1))
         p_b = pyro.sample("p_b", dist.Normal(skill_b, beta).to_event(1))
@@ -140,6 +203,10 @@ def model(batch, n_players):
         gamma_b = role_intercepts(GAMMA_MAT, batch["team_b_role"])
         mean_a = p_a.unsqueeze(-1) * ALPHA_VEC.view(1, 1, -1) + gamma_a
         mean_b = p_b.unsqueeze(-1) * ALPHA_VEC.view(1, 1, -1) + gamma_b
+        context_shift_a = batch["team_context_a"] @ team_context_effect
+        context_shift_b = batch["team_context_b"] @ team_context_effect
+        mean_a = mean_a + context_shift_a.unsqueeze(1)
+        mean_b = mean_b + context_shift_b.unsqueeze(1)
 
         pyro.sample(
             "obs_a",
@@ -165,6 +232,17 @@ def guide(batch, n_players):
         constraint=dist.constraints.positive,
     )
     pyro.sample("s", dist.Normal(s_loc, s_scale).to_event(2))
+
+    context_loc = pyro.param(
+        "team_context_effect_z_loc",
+        torch.zeros(len(CONTEXT_STATS), len(INDIVIDUAL_STATS)),
+    )
+    context_scale = pyro.param(
+        "team_context_effect_z_scale",
+        0.1 * torch.ones(len(CONTEXT_STATS), len(INDIVIDUAL_STATS)),
+        constraint=dist.constraints.positive,
+    )
+    pyro.sample("team_context_effect_z", dist.Normal(context_loc, context_scale).to_event(2))
 
     pa_loc = pyro.param("pa_loc", 25.0 * torch.ones(n_matches, 5))
     pa_scale = pyro.param(
@@ -258,7 +336,12 @@ if __name__ == "__main__":
         print(f"Loaded params from {args.load}")
     else:
         start = time.perf_counter()
-        losses = train(batch, n_players, n_steps=args.n_steps, lr=0.01)
+        losses = train(
+            batch,
+            n_players,
+            n_steps=args.n_steps,
+            lr=0.01,
+        )
         elapsed = time.perf_counter() - start
 
         pyro.get_param_store().save("params_fast.pt")
