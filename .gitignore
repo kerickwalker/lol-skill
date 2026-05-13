@@ -1,5 +1,11 @@
 __pycache__/
 data/LCK_S15_games/
 feature-relationships/detailed-legacy/
-params/
-elbo/
+tmp/
+*.pyc
+Projects.pdf
+data/analysis/*_player_scores.csv
+data/analysis/*_learned_quantities.csv
+data/analysis/*_sweep_results.csv
+data/analysis/*_seed_repeats.csv
+data/analysis/*_seed_repeat_summary.csv

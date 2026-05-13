@@ -7,7 +7,6 @@ never split across the two sets.
 Examples:
     python "data scripts/split_train_test.py"
     python "data scripts/split_train_test.py" --test-ratio 0.2 --seed 42
-    python "data scripts/split_train_test.py" --csv-path data/lck_s15_games_MODEL-READY_role_zscored.csv
 """
 
 import argparse

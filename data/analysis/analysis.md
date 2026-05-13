@@ -116,12 +116,12 @@
 - `*_role_z`
 - These are included for comparison and discussion, not yet as a final commitment to one normalization strategy.
 
-## Z-Scored Modeling File
-- `data/lck_s15_games_MODEL-READY_role_zscored.csv` is a separate standardized version of the model-ready file.
-- Player-centric stats are z-scored within role.
-- `Duration` is z-scored at the unique-game level.
-- Team-total context columns are z-scored at the unique-team level rather than by role.
-- `Result` is encoded as `1` for `Victory` and `0` for `Defeat` in that file.
+## Z-Scored Modeling
+- The standalone role-zscored model-ready CSV was removed.
+- The current baseline reads the raw model-ready CSV and computes z-scores internally.
+- Player-centric and same-role diff stats are z-scored within role.
+- `Duration` is standardized once per game.
+- Team-total context columns are standardized once per team-game.
 
 ## Analysis Plots Relevant To Selection
 - `plots/model_ready_feature_correlation_heatmap.png`: correlation matrix over all columns from `Result` onward in the model-ready CSV, with `Result` encoded as `1/0` and `Duration` converted to decimal minutes.

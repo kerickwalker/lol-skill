@@ -14,7 +14,6 @@ OUT_DIR = PROJECT_ROOT / "data/analysis"
 PLOTS_DIR = OUT_DIR / "plots"
 MODEL_READY_PATH = PROJECT_ROOT / "data/lck_s15_games_MODEL-READY.csv"
 ROLE_NORMALIZATION_PATH = PROJECT_ROOT / "data/role_normalization_comparison.csv"
-MODEL_READY_ZSCORED_PATH = PROJECT_ROOT / "data/lck_s15_games_MODEL-READY_role_zscored.csv"
 
 
 def parse_duration_minutes(value: str) -> float:
@@ -32,27 +31,6 @@ def zscore_by_role(series: pd.Series, roles: pd.Series) -> pd.Series:
 def center_by_role(series: pd.Series, roles: pd.Series) -> pd.Series:
     means = series.groupby(roles).transform("mean")
     return series - means
-
-
-def zscore_global(series: pd.Series) -> pd.Series:
-    std = series.std()
-    if pd.isna(std) or std == 0:
-        return pd.Series(0.0, index=series.index)
-    return (series - series.mean()) / std
-
-
-def zscore_from_unique_groups(
-    frame: pd.DataFrame, group_col: str, value_col: str
-) -> pd.Series:
-    unique = frame[[group_col, value_col]].drop_duplicates(subset=[group_col]).copy()
-    unique[value_col] = pd.to_numeric(unique[value_col], errors="coerce")
-    std = unique[value_col].std()
-    if pd.isna(std) or std == 0:
-        lookup = pd.Series(0.0, index=unique[group_col])
-    else:
-        lookup = ((unique[value_col] - unique[value_col].mean()) / std).set_axis(unique[group_col])
-        lookup.index = unique[group_col]
-    return frame[group_col].map(lookup).astype(float)
 
 
 def parse_kda_series(series: pd.Series) -> pd.DataFrame:
@@ -374,69 +352,6 @@ def build_role_normalization_comparison_table(model_ready: pd.DataFrame) -> pd.D
         comparison[f"{stat}_role_z"] = zscore_by_role(comparison[stat], comparison["role"])
 
     return comparison.sort_values(["game_block_id", "Result", "role", "player_name"]).reset_index(drop=True)
-
-
-def build_model_ready_role_zscore_table(model_ready: pd.DataFrame) -> pd.DataFrame:
-    z_table = model_ready.copy()
-    z_table["Result"] = (z_table["Result"] == "Victory").astype(int)
-    z_table["Duration"] = z_table["Duration"].astype(str).map(parse_duration_minutes)
-    z_table["team_id"] = z_table["game_block_id"].astype(str) + "_" + z_table["Result"].astype(str)
-
-    player_role_stats = [
-        "level",
-        "kills",
-        "deaths",
-        "assists",
-        "cs",
-        "golds",
-        "vision_score",
-        "solo_kills",
-        "double_kills",
-        "triple_kills",
-        "quadra_kills",
-        "penta_kills",
-        "gd_at_15",
-        "csd_at_15",
-        "xpd_at_15",
-        "objectives_stolen",
-        "damage_dealt_to_buildings",
-        "total_heal",
-        "total_heals_on_teammates",
-        "damage_self_mitigated",
-        "total_damage_shielded_on_teammates",
-        "total_time_cc_dealt",
-        "total_damage_taken",
-        "total_time_spent_dead",
-        "shutdown_bounty_collected",
-        "shutdown_bounty_lost",
-        "total_damage_to_champion",
-        "kills_diff_vs_role_opp",
-        "deaths_diff_vs_role_opp",
-        "assists_diff_vs_role_opp",
-        "cs_diff_vs_role_opp",
-        "golds_diff_vs_role_opp",
-        "vision_diff_vs_role_opp",
-        "damage_diff_vs_role_opp",
-    ]
-    team_stats = [
-        "team_kills",
-        "team_deaths",
-        "team_assists",
-        "team_cs",
-        "team_golds",
-        "team_vision_score",
-        "team_total_damage_to_champion",
-    ]
-
-    for col in player_role_stats:
-        z_table[col] = zscore_by_role(pd.to_numeric(z_table[col], errors="coerce"), z_table["role"])
-    z_table["Duration"] = zscore_from_unique_groups(z_table, "game_block_id", "Duration")
-    for col in team_stats:
-        z_table[col] = zscore_from_unique_groups(z_table, "team_id", col)
-
-    z_table = z_table.drop(columns=["team_id"])
-
-    return z_table.sort_values(["game_block_id", "Result", "role", "player_name"]).reset_index(drop=True)
 
 
 def build_player_summary(features: pd.DataFrame) -> pd.DataFrame:
@@ -869,13 +784,6 @@ def write_feature_selection_summary(out_path: Path) -> None:
         "- `*_role_z`",
         "- These are included for comparison and discussion, not yet as a final commitment to one normalization strategy.",
         "",
-        "## Z-Scored Modeling File",
-        "- `data/lck_s15_games_MODEL-READY_role_zscored.csv` is a separate standardized version of the model-ready file.",
-        "- Player-centric stats are z-scored within role.",
-        "- `Duration` is z-scored at the unique-game level.",
-        "- Team-total context columns are z-scored at the unique-team level rather than by role.",
-        "- `Result` is encoded as `1` for `Victory` and `0` for `Defeat` in that file.",
-        "",
         "## Analysis Plots Relevant To Selection",
         "- `plots/model_ready_feature_correlation_heatmap.png`: correlation matrix over all columns from `Result` onward in the model-ready CSV, with `Result` encoded as `1/0` and `Duration` converted to decimal minutes.",
         "- `plots/role_normalization_comparison.png`: compares raw, role-centered, and role-z-scored versions of the selected normalization stats.",
@@ -890,7 +798,6 @@ def main() -> None:
     features = load_features(DATA_PATH)
     model_ready = build_model_ready_table(features)
     role_comparison = build_role_normalization_comparison_table(model_ready)
-    model_ready_zscored = build_model_ready_role_zscore_table(model_ready)
     player_summary = build_player_summary(features)
     pair_summary = build_pair_summary(features)
 
@@ -898,7 +805,6 @@ def main() -> None:
     player_summary.to_csv(OUT_DIR / "lck_s15_player_summary.csv", index=False)
     pair_summary.to_csv(OUT_DIR / "lck_s15_teammate_pairs.csv", index=False)
     model_ready.to_csv(MODEL_READY_PATH, index=False)
-    model_ready_zscored.to_csv(MODEL_READY_ZSCORED_PATH, index=False)
 
     plot_role_distributions(features, PLOTS_DIR / "role_distributions.png")
     plot_feature_heatmap(features, PLOTS_DIR / "feature_correlation_heatmap.png")
@@ -932,7 +838,6 @@ def main() -> None:
     print(f"Saved feature table to {OUT_DIR / 'lck_s15_model_features.csv'}")
     print(f"Saved model-ready file to {MODEL_READY_PATH}")
     print(f"Saved role-normalization comparison file to {ROLE_NORMALIZATION_PATH}")
-    print(f"Saved role-zscored model-ready file to {MODEL_READY_ZSCORED_PATH}")
     print(f"Saved player summary to {OUT_DIR / 'lck_s15_player_summary.csv'}")
     print(f"Saved pair summary to {OUT_DIR / 'lck_s15_teammate_pairs.csv'}")
     print(f"Saved plots to {PLOTS_DIR}")

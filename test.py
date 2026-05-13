@@ -1,19 +1,7 @@
 #!/usr/bin/env python
-"""
-Evaluate a trained LCK skill model on held-out games, or predict a single matchup.
+"""Evaluate a trained LCK skill model or predict a specific matchup."""
 
-Win probability uses the same formula as training:
-    Phi((sum_skill_A - sum_skill_B) / sqrt(2))
-
-Evaluate mode (default):
-    python test.py --params params/relationship_20260512_182140.pt
-    python test.py --params params/relationship_20260512_182140.pt --csv-path data/lck_s15_games_MODEL-READY_test.csv
-
-Predict mode (--team-a and --team-b, 5 players each as Name:ROLE):
-    python test.py --params params/relationship_20260512_182140.pt \\
-        --team-a "Faker:MID" "Gumayusi:ADC" "Keria:SUPPORT" "Zeus:TOP" "Oner:JUNGLE" \\
-        --team-b "Chovy:MID" "Peyz:ADC" "Delight:SUPPORT" "Doran:TOP" "Canyon:JUNGLE"
-"""
+from __future__ import annotations
 
 import argparse
 import math
@@ -25,28 +13,36 @@ import torch
 from models.config import ROLE_MAP
 
 
-def _load_params(path):
-    """Load a Pyro param store from disk. Works around PyTorch 2.6+ weights_only default."""
-    state = torch.load(path, map_location="cpu", weights_only=False)
-    pyro.get_param_store().set_state(state)
-
-BETA_O = 1.0
+RESULT_NOISE = 1.0
 DEFAULT_TEST_CSV = "data/lck_s15_games_MODEL-READY_test.csv"
-# Full dataset used for player ID → index mapping, which must match what was used during training.
-DEFAULT_REF_CSV = "data/lck_s15_games_MODEL-READY.csv"
+DEFAULT_REF_CSV = "data/lck_s15_games_MODEL-READY_train.csv"
 
 ROLE_ALIASES = {
-    "JNG": "JUNGLE", "JG": "JUNGLE",
+    "JNG": "JUNGLE",
+    "JG": "JUNGLE",
     "BOT": "ADC",
-    "SUP": "SUPPORT", "SUPP": "SUPPORT",
+    "SUP": "SUPPORT",
+    "SUPP": "SUPPORT",
 }
 ROLE_IDX_TO_NAME = {v: k for k, v in ROLE_MAP.items()}
 
 
-def _win_prob(s_loc, pid_a, role_a, pid_b, role_b):
-    skill_a = s_loc[pid_a, role_a].sum(-1)
-    skill_b = s_loc[pid_b, role_b].sum(-1)
-    diff = (skill_a - skill_b) / (math.sqrt(2) * BETA_O)
+def _load_params(path):
+    """Load a Pyro param store from disk despite PyTorch's weights_only default."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    pyro.get_param_store().set_state(state)
+
+
+def _team_skill(player_role_skills, aggregation):
+    if aggregation == "mean":
+        return player_role_skills.mean(-1)
+    return player_role_skills.sum(-1)
+
+
+def _win_prob(s_loc, pid_a, role_a, pid_b, role_b, aggregation):
+    skill_a = _team_skill(s_loc[pid_a, role_a], aggregation)
+    skill_b = _team_skill(s_loc[pid_b, role_b], aggregation)
+    diff = (skill_a - skill_b) / (math.sqrt(2) * RESULT_NOISE)
     return torch.distributions.Normal(0.0, 1.0).cdf(diff)
 
 
@@ -79,7 +75,7 @@ def evaluate(args):
     if s_loc.shape[0] != n_players:
         print(
             f"WARNING: params have {s_loc.shape[0]} players but ref CSV has {n_players}. "
-            "Ensure --params and --ref-csv come from the same training run."
+            "Use the same --ref-csv that was used during training."
         )
 
     pid_a_rows, role_a_rows, pid_b_rows, role_b_rows = [], [], [], []
@@ -108,9 +104,8 @@ def evaluate(args):
     role_b = torch.stack(role_b_rows)
 
     with torch.no_grad():
-        probs = _win_prob(s_loc, pid_a, role_a, pid_b, role_b)
+        probs = _win_prob(s_loc, pid_a, role_a, pid_b, role_b, args.team_aggregation)
 
-    # Team A is always the winner (Result == Victory) in the dataset.
     n_games = len(pid_a_rows)
     accuracy = (probs > 0.5).float().mean().item()
     brier = ((probs - 1.0) ** 2).mean().item()
@@ -135,18 +130,15 @@ def predict(args):
         players = []
         for entry in entries:
             if ":" not in entry:
-                raise ValueError(f"Expected 'Name:ROLE', got '{entry!r}'")
+                raise ValueError(f"Expected 'Name:ROLE', got {entry!r}")
             name, role_str = entry.rsplit(":", 1)
-            role_str = role_str.upper()
-            role_str = ROLE_ALIASES.get(role_str, role_str)
+            role_str = ROLE_ALIASES.get(role_str.upper(), role_str.upper())
             if name not in name_to_pid:
                 raise ValueError(
                     f"Unknown player {name!r}.\nKnown players: {sorted(name_to_pid)}"
                 )
             if role_str not in ROLE_MAP:
-                raise ValueError(
-                    f"Unknown role {role_str!r}. Valid: {list(ROLE_MAP)}"
-                )
+                raise ValueError(f"Unknown role {role_str!r}. Valid: {list(ROLE_MAP)}")
             players.append((name, pid_to_idx[name_to_pid[name]], ROLE_MAP[role_str]))
         return players
 
@@ -159,7 +151,7 @@ def predict(args):
     role_b = torch.tensor([p[2] for p in team_b], dtype=torch.long)
 
     with torch.no_grad():
-        prob = _win_prob(s_loc, pid_a, role_a, pid_b, role_b).item()
+        prob = _win_prob(s_loc, pid_a, role_a, pid_b, role_b, args.team_aggregation).item()
 
     def fmt_team(players):
         return "  " + "\n  ".join(
@@ -175,16 +167,25 @@ def predict(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate or predict with a trained LCK skill model")
-    parser.add_argument("--params", required=True, metavar="FILE",
-                        help="Saved .pt params file from train.py")
-    parser.add_argument("--csv-path", default=DEFAULT_TEST_CSV,
-                        help=f"Test CSV for evaluation (default: {DEFAULT_TEST_CSV})")
-    parser.add_argument("--ref-csv", default=DEFAULT_REF_CSV,
-                        help=f"Full dataset CSV for consistent player ID→index mapping (default: {DEFAULT_REF_CSV})")
-    parser.add_argument("--team-a", nargs=5, metavar="NAME:ROLE",
-                        help="Predict mode: 5 players for team A as Name:ROLE")
-    parser.add_argument("--team-b", nargs=5, metavar="NAME:ROLE",
-                        help="Predict mode: 5 players for team B as Name:ROLE")
+    parser.add_argument("--params", required=True, metavar="FILE", help="Saved .pt params from train.py")
+    parser.add_argument(
+        "--csv-path",
+        default=DEFAULT_TEST_CSV,
+        help=f"Test CSV for evaluation (default: {DEFAULT_TEST_CSV})",
+    )
+    parser.add_argument(
+        "--ref-csv",
+        default=DEFAULT_REF_CSV,
+        help=f"Training CSV for consistent player ID mapping (default: {DEFAULT_REF_CSV})",
+    )
+    parser.add_argument(
+        "--team-aggregation",
+        choices=["sum", "mean"],
+        default="mean",
+        help="How to aggregate five player skills into team skill (default: mean)",
+    )
+    parser.add_argument("--team-a", nargs=5, metavar="NAME:ROLE", help="Predict mode team A")
+    parser.add_argument("--team-b", nargs=5, metavar="NAME:ROLE", help="Predict mode team B")
     args = parser.parse_args()
 
     if bool(args.team_a) != bool(args.team_b):
