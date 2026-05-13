@@ -55,14 +55,14 @@ Train a model on the train split and save the learned parameters:
 
 ```bash
 # with uv
-uv run python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output baseline_5000_seed1
-uv run python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_alpha_tau_5000_seed1
-uv run python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_corr_5000_seed1
+uv run python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output baseline_2500_seed1
+uv run python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_alpha_tau_2500_seed1
+uv run python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_corr_2500_seed1
 
 # without uv
-python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output baseline_5000_seed1
-python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_alpha_tau_5000_seed1
-python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_corr_5000_seed1
+python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output baseline_2500_seed1
+python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_alpha_tau_2500_seed1
+python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_corr_2500_seed1
 ```
 
 Saves to:
@@ -92,6 +92,22 @@ Options:
 | `role_alpha_tau` | Preferred baseline extension. Builds on `baseline` with role-specific alpha/tau priors so, for example, kills/golds can matter differently for ADC, MID, JUNGLE, TOP, and SUPPORT. |
 | `role_corr` | Builds on `role_alpha_tau` with learned cross-role performance correlations within a team, using the role-pair matrix discussed in `project_summary.md` as an informative prior. |
 
+### Generative direction vs inference direction
+
+The graph arrows describe the generative story: hidden skill creates game performance, and game performance creates the observed stats and result. During inference, the observed stats and result are used to update the hidden performance and skill estimates.
+
+```mermaid
+flowchart LR
+    Skill["Player skill\n(latent)"] --> Perf["Game performance\n(latent)"]
+    Perf --> Stats["Observed game stats\n(kills, deaths, gold, damage, etc.)"]
+    Perf --> TeamPerf["Team performance\n(average/sum of players)"]
+    TeamPerf --> Result["Observed result\n(win/loss)"]
+
+    Stats -. "Bayesian inference updates" .-> Perf
+    Result -. "Bayesian inference updates" .-> Perf
+    Perf -. "aggregated over games" .-> Skill
+```
+
 ---
 
 ## Evaluation and prediction
@@ -100,14 +116,14 @@ Options:
 
 ```bash
 # with uv
-uv run python test.py --params params/baseline_5000_seed1.pt
-uv run python test.py --params params/role_alpha_tau_5000_seed1.pt
-uv run python test.py --params params/role_corr_5000_seed1.pt
+uv run python test.py --params params/baseline_2500_seed1.pt
+uv run python test.py --params params/role_alpha_tau_2500_seed1.pt
+uv run python test.py --params params/role_corr_2500_seed1.pt
 
 # without uv
-python test.py --params params/baseline_5000_seed1.pt
-python test.py --params params/role_alpha_tau_5000_seed1.pt
-python test.py --params params/role_corr_5000_seed1.pt
+python test.py --params params/baseline_2500_seed1.pt
+python test.py --params params/role_alpha_tau_2500_seed1.pt
+python test.py --params params/role_corr_2500_seed1.pt
 ```
 
 Reports accuracy, Brier score, and log-loss on the held-out test games. By default, team skill is the mean of the five player-role skills.
@@ -116,12 +132,12 @@ Reports accuracy, Brier score, and log-loss on the held-out test games. By defau
 
 ```bash
 # with uv
-uv run python test.py --params params/role_corr_5000_seed1.pt \
+uv run python test.py --params params/role_corr_2500_seed1.pt \
     --team-a "Faker:MID" "Gumayusi:ADC" "Keria:SUPPORT" "Zeus:TOP" "Oner:JUNGLE" \
     --team-b "Chovy:MID" "Ruler:ADC" "Delight:SUPPORT" "Doran:TOP" "Canyon:JUNGLE"
 
 # without uv
-python test.py --params params/role_corr_5000_seed1.pt \
+python test.py --params params/role_corr_2500_seed1.pt \
     --team-a "Faker:MID" "Gumayusi:ADC" "Keria:SUPPORT" "Zeus:TOP" "Oner:JUNGLE" \
     --team-b "Chovy:MID" "Ruler:ADC" "Delight:SUPPORT" "Doran:TOP" "Canyon:JUNGLE"
 ```
@@ -147,10 +163,10 @@ Inspect one training game to compare observed raw stats, team/game context, same
 
 ```bash
 # with uv
-uv run python case_study.py --model role_corr --params params/role_corr_5000_seed1.pt --game-block-id 123
+uv run python case_study.py --model role_corr --params params/role_corr_2500_seed1.pt --game-block-id 123
 
 # without uv
-python case_study.py --model role_corr --params params/role_corr_5000_seed1.pt --game-block-id 123
+python case_study.py --model role_corr --params params/role_corr_2500_seed1.pt --game-block-id 123
 ```
 
 Use this for sanity checks such as: did the model over-credit a player because the game had unusually high team kills, did same-role outperformance matter, or do the inferred performances agree with League intuition?
@@ -164,15 +180,15 @@ Use this for sanity checks such as: did the model over-credit a player because t
 uv run python "data scripts/split_train_test.py"
 
 # 2. Train the current preferred model family
-uv run python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output baseline_5000_seed1
-uv run python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_alpha_tau_5000_seed1
-uv run python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 5000 --seed 1 --output role_corr_5000_seed1
+uv run python train.py --model baseline       --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output baseline_2500_seed1
+uv run python train.py --model role_alpha_tau --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_alpha_tau_2500_seed1
+uv run python train.py --model role_corr      --csv-path data/lck_s15_games_MODEL-READY_train.csv --n-steps 2500 --seed 1 --output role_corr_2500_seed1
 
 # 3. Evaluate on the test split
-uv run python test.py --params params/baseline_5000_seed1.pt
-uv run python test.py --params params/role_alpha_tau_5000_seed1.pt
-uv run python test.py --params params/role_corr_5000_seed1.pt
+uv run python test.py --params params/baseline_2500_seed1.pt
+uv run python test.py --params params/role_alpha_tau_2500_seed1.pt
+uv run python test.py --params params/role_corr_2500_seed1.pt
 
 # 4. Inspect one game manually
-uv run python case_study.py --model role_corr --params params/role_corr_5000_seed1.pt --game-block-id 123
+uv run python case_study.py --model role_corr --params params/role_corr_2500_seed1.pt --game-block-id 123
 ```
